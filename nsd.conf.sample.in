@@ -201,6 +201,35 @@ server:
 	# tls-service-ocsp: "path/to/ocsp.pem"
 	# tls-port: 853
 
+# Verify config section.
+verify:
+	# Run NSD in verify mode (formally CreDNS).
+	# enable: no
+
+	# Should a zone updated by IXFR or AXFR be served to a verifier?
+	# Uncomment to enable and specify on what ip-addresses the updated zone will
+	# be served.
+	# ip-address: 127.0.0.1
+	# ip-address: 127.0.0.1@5347
+	# ip-address: ::1
+
+	# Port on which IXFR or AXFR updated zones are served to a verifier.
+	# port: 5347
+
+	# Command used to assess IXFR or AXFR updates.
+	# verifier: ldns-verify-zone
+	# verifier: validns -
+	# verifier: drill -k <keyfile> @127.0.0.1 -p 5347 example.com SOA
+
+	# Number of verifier processes that may run concurrently.
+	# verifier-count: 1
+
+	# Should an updated zone be fed to the verifier over STDIN?
+	# verifier-feed-zone: yes
+
+	# Number of seconds that a verifier may take (0 is forever).
+	# verifier-timeout: 0
+
 # DNSTAP config section, if compiled with that
 # dnstap:
 	# set this to yes and set one or more of dnstap-log-..-messages to yes.
@@ -326,6 +355,19 @@ remote-control:
 	# (which master to request from first, which slave to notify first).
 	#include-pattern: "common-masters"
 
+	# Command used to assess IXFR and AXFR updates.
+	# Comment to use the command specified in the verify: section.
+	# verifier: ldns-verify-zone
+
+	# Feed an updated zone to the verifier over STDIN?
+	# Comment or specify inherit to use the value from the verify:
+	# section, otherwise yes or no.
+	# verifier-feed-zone: inherit
+
+	# Number of seconds that a verifier may take.
+	# Comment line or specify inherit to use the value from the verify:
+	# section, 0 to disable or a positive number.
+	# verifier-timeout: inherit
 
 # Fixed zone entries.  Here you can config zones that cannot be deleted.
 # Zones that are dynamically added and deleted are put in the zonelist file.

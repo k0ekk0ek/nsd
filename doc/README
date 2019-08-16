@@ -13,6 +13,7 @@
 3.4 ... Zone expiry of secondary zones
 3.5 ... Diagnosing NSD log entries
 3.6 ... Interfaces
+3.7 ... Zone verification
 4.0 Support and Feedback
 4.1 ... Your Support
 
@@ -175,7 +176,7 @@ addition to standard configure options, one may use the following:
 
 	Enables ratelimiting, based on query name, type and source.
 
-   --enable-draft-rrtypes
+  --enable-draft-rrtypes
 
 	Enables draft RRtypes.
 
@@ -692,6 +693,163 @@ all the interfaces as ip-address config file options.
 
 With the config file option ip-transparent you can allow NSD to bind to
 non local addresses.
+
+
+3.7 Zone verification
+
+NSD can be configured to work like a proxy to fortify DNSSEC by performing
+validation in the DNS notify/transfer-chain. It offers the possibility to
+assess zones (received or updated by AXFR or IXFR) by running an external
+verifier. Only zones that are deemed correct by the verifier will be
+notified to (public) slave servers and offered for transfer.
+
+An external verifier can be configured in the server section, per pattern
+or per zone. When a zone with a verifier is received or updated via an
+(incremental) zone transfer, it will be submitted to this external verifier
+for evaluation. When the verifier deems the updated zone to be correct, it
+has to indicate this by exiting with status code 0. The zone will then be
+served. Other exit status codes will discard the update and credns will
+continue to serve the zone before the update.
+
+A verifier is specified with the "verifier:" option in the "server:",
+"pattern:" or "zone:" clause.
+
+The zone can be provided to the verifier in two ways.
+
+     1. The complete zone can be fed to the standard input of the verifier.
+
+       This modus operandi is enabled by default and can be configured with
+       the "verifier-feed-zone:" option in the "server:" and the "zone:"
+       clause. The option in the "server:" clause sets the default for all
+       verifier-enabled zones which can in turn deviate from the general
+       setting with their own option.
+
+       Examples for verifiers that read from the standard input are:
+       "lds-verify-zone -V2" (-V2 to suppress copying of the zone to stdout)
+       or "validns -" (don't forget the dash (-) to read the zone from stdin).
+
+     2. The zone can be served to the verifier.
+
+       This is disabled by default and can be enabled by configuring ip-
+       addresses, with the "verify-ip-address" option in the "server:" clause,
+       on which the zone to be assessed will be served.  Addresses can
+       optionally contain a port number, but when not given will use the value
+       specified by the "verify-port" option, which, when not given, will be
+       5347.
+
+       For example to validate the SOA of a zone example.com by querying,
+       with a certain DS record as the trust anchor (in file example.com.ds),
+       the "verifier:" option could have the following value:
+       "drill -S -k example.com.ds @localhost -p 5347 example.com SOA"
+
+A verifier is informed about the domain name of the zone to be verified, and
+the accessibility of the system submitting the zone via environment variables.
+
+       VERIFY_ZONE
+               will contain the domain name of the zone to be verified.
+
+       VERIFY_ZONE_ON_STDIN
+               will contain the value "yes" when the zone is fed to the
+               standard input of the verifier.
+
+       VERIFY_IP_ADDRESSES
+               will contain a list of <ip-address>@<port>s on which the zone
+               to be verified can be queried.
+
+       VERIFY_IPV6_ADDRESS and VERIFY_IPV6_PORT
+               will contain the first configured IPv6 address (and port) for
+               querying the zone (if configured and when supported).
+
+       VERIFY_IPV4_ADDRESS and VERIFY_IPV4_PORT
+               the first configured IPv4 address and port (again when
+               configured and supported), and
+
+       VERIFY_IP_ADDRESS and VERIFY_PORT
+               the first address and port with a preference for IPv6.
+
+For each zone one verifier will be run at the same time, but when multiple
+to-be-verified zones are received, multiple verifiers may be run
+simultaneously. The number of verifiers that may be run simultaneously is
+configured with the "verifier-count:" option in the "server:" clause and
+defaults to 1.
+
+The time a verifier may take can be configured with the "verifier-timeout:"
+option in the "server:" clause (to make the general default) or in the "zone:"
+clause to set it for a specific zone. When the time the verifier takes exceeds
+the timeout value, the zone to be verified will be considered bad.  By default
+the value is 0, which means that the verifier may take as long as it needs.
+
+
+A minimal verification setup:
+
+Suppose you have a hidden master for example.com on 10.0.0.1 and a public
+slave on 10.20.0.1.  We will configure nsd listening on 10.10.0.1 in between
+those two validating with ldns-verify-zone.
+
+Configure the address the verifying instance of nsd should listen on for its
+zones in the server section of the file /etc/nsd/nsd.conf:
+
+	server:
+		ip-address: 10.10.0.1
+		username: nsd
+
+The username must be an existing user identity which nsd can run as.
+
+Enable verification of zones by setting enable: to yes in the verify section.
+
+	verify:
+		enable: yes
+
+The zone sections starts with the name.
+
+	zone:
+		name: example.com
+
+In the zone section we allow notification from the hidden master and indicate
+that we transfer the zone from that master as well.
+
+		allow-notify: 10.0.0.1 NOKEY
+		request-xfr: 10.0.0.1 NOKEY
+
+Then we configure that we use ldns-verify-zone to validate the zone:
+
+		verifier: ldns-verify-zone -V2
+
+And when validated successfully the zone is notified and offered for transfer
+to the public slave:
+
+		notify: 10.20.0.1 NOKEY
+		provide-xfr: 10.20.0.1 NOKEY
+
+We are ready to start NSD:
+
+	# nsdc start
+
+NSD will now (after some initial setup) request transfer from the hidden
+master: 10.0.0.1. It will pass the zonefile for assessment to ldns-verify-zone.
+Then, when the zone is valid, it notifies the public slave on 10.20.0.1 and
+offers the newly loaded and validated zone for transfer.
+
+The syslog now contain messages reflecting this sequence of affairs:
+
+	nsd[<m1pid>]: new database created (/var/db/credns/credns.db)
+	nsd[<m1pid>]: credns started (credns 0.2.10), pid <m1pid>
+	nsd[<c1pid>]: adding 1 udp handlers to netio.
+	nsd[<c1pid>]: udp socket 10.10.0.1:domain added to netio
+	nsd[<c1pid>]: adding 1 tcp handlers to netio.
+	nsd[<c1pid>]: tcp socket 10.10.0.1:domain added to netio
+	nsd[<m1pid>]: signal received, reloading...
+	nsd[<m2pid>]: memory recyclebin holds 1208 bytes
+	nsd[<m2pid>]: Zone example.com has changed.
+	nsd[<m2pid>]: Zone is verified and complete
+	nsd[<m2pid>]: Zone example.com verified successfully.
+	nsd[<m2pid>]: Zone verifying done... Good: 1, Bad: 0.
+	nsd[<c2pid>]: adding 1 udp handlers to netio.
+	nsd[<c2pid>]: udp socket 10.10.0.1:domain added to netio
+	nsd[<c2pid>]: adding 1 tcp handlers to netio.
+	nsd[<c2pid>]: tcp socket 10.10.0.1:domain added to netio
+	nsd[<xfrdpid>]: Zone example.com serial 0 is updated to <serial>.
+
 
 4.0 Support and Feedback
 

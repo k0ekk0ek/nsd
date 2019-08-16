@@ -32,6 +32,14 @@ extern "C"
 extern config_parser_state_type *cfg_parser;
 
 static void append_acl(struct acl_options **list, struct acl_options *acl);
+static int parse_boolean(const char *str, int *bln);
+static int parse_number(const char *str, long long *num);
+
+struct component {
+  struct component *next;
+  char *str;
+};
+
 %}
 
 %union {
@@ -39,12 +47,19 @@ static void append_acl(struct acl_options **list, struct acl_options *acl);
   long long llng;
   int bln;
   struct ip_address_option *ip;
+  char **strv;
+  struct component *comp;
 }
 
 %token <str> STRING
+
 %type <llng> number
 %type <bln> boolean
 %type <ip> ip_address
+%type <llng> verifier_timeout
+%type <bln> verifier_feed_zone
+%type <strv> command
+%type <comp> arguments
 
 /* server */
 %token VAR_SERVER
@@ -104,6 +119,7 @@ static void append_acl(struct acl_options **list, struct acl_options *acl);
 %token VAR_TLS_SERVICE_PEM
 %token VAR_TLS_SERVICE_OCSP
 %token VAR_TLS_PORT
+%token VAR_ENABLE
 
 /* dnstap */
 %token VAR_DNSTAP
@@ -157,6 +173,13 @@ static void append_acl(struct acl_options **list, struct acl_options *acl);
 %token VAR_ZONE
 %token VAR_RRL_WHITELIST
 
+/* verifier */
+%token VAR_VERIFY
+%token VAR_VERIFIER
+%token VAR_VERIFIER_COUNT
+%token VAR_VERIFIER_FEED_ZONE
+%token VAR_VERIFIER_TIMEOUT
+
 %%
 
 blocks:
@@ -169,7 +192,8 @@ block:
   | remote_control
   | key
   | pattern
-  | zone ;
+  | zone
+  | verify ;
 
 server:
     VAR_SERVER server_block ;
@@ -596,7 +620,14 @@ pattern_option:
     {
       cfg_parser->block.pattern->min_retry_time = $2;
       cfg_parser->block.pattern->min_retry_time_is_default = 0;
-    } ;
+    }
+  | VAR_VERIFIER command
+    { cfg_parser->block.pattern->verifier = $2; }
+  | verifier_feed_zone
+    { cfg_parser->block.pattern->verifier_feed_zone = (uint8_t)$1; }
+  | verifier_timeout
+    { cfg_parser->block.pattern->verifier_timeout = (int32_t)$1; }
+ ;
 
 zone:
     VAR_ZONE
@@ -732,6 +763,119 @@ zone_option:
     {
       cfg_parser->block.zone->pattern->min_retry_time = $2;
       cfg_parser->block.zone->pattern->min_retry_time_is_default = 0;
+    }
+  | VAR_VERIFIER command
+    { cfg_parser->block.zone->pattern->verifier = $2; }
+  | verifier_feed_zone
+    { cfg_parser->block.zone->pattern->verifier_feed_zone = (uint8_t)$1; }
+  | verifier_timeout
+    { cfg_parser->block.zone->pattern->verifier_timeout = (int32_t)$1; } ;
+
+verify:
+    VAR_VERIFY verify_block ;
+
+verify_block:
+    verify_block verify_option | ;
+
+verify_option:
+    VAR_ENABLE boolean
+    { cfg_parser->opt->verify_enable = $2; }
+  | VAR_IP_ADDRESS ip_address
+    {
+      struct ip_address_option *ip = cfg_parser->opt->verify_ip_addresses;
+      if(!ip) {
+        cfg_parser->opt->verify_ip_addresses = $2;
+      } else {
+        while(ip->next) { ip = ip->next; }
+        ip->next = $2;
+      }
+    }
+  | VAR_PORT number
+    {
+      /* port number, stored as a string */
+      char buf[16];
+      (void)snprintf(buf, sizeof(buf), "%lld", $2);
+      cfg_parser->opt->verify_port = region_strdup(cfg_parser->opt->region, buf);
+    }
+  | VAR_VERIFIER command
+    { cfg_parser->opt->verifier = $2; }
+  | VAR_VERIFIER_COUNT number
+    { cfg_parser->opt->verifier_count = (int)$2; }
+  | VAR_VERIFIER_TIMEOUT number
+    { cfg_parser->opt->verifier_timeout = (int)$2; }
+  | VAR_VERIFIER_FEED_ZONE boolean
+    { cfg_parser->opt->verifier_feed_zone = $2; } ;
+
+verifier_feed_zone:
+    VAR_VERIFIER_FEED_ZONE STRING
+    {
+      int bln = 0;
+      $$ = 0;
+      if(strcmp($2, "inherit") == 0) {
+        $$ = ZONE_VERIFIER_FEED_ZONE_INHERIT;
+      } else if(parse_boolean($2, &bln)) {
+        $$ = bln;
+      } else {
+        yyerror("expected inherit, yes or no");
+        YYABORT;
+      }
+    } ;
+
+verifier_timeout:
+    VAR_VERIFIER_TIMEOUT STRING
+    {
+      long long llng = 0;
+      $$ = 0;
+      if(strcmp($2, "inherit") == 0) {
+        $$ = ZONE_VERIFIER_TIMEOUT_INHERIT;
+      } else if(parse_number($2, &llng)) {
+        $$ = llng;
+      } else {
+        yyerror("expected inherit or a number");
+        YYABORT;
+      }
+    } ;
+
+command:
+    STRING arguments
+    {
+      char **argv;
+      size_t argc = 1;
+      for(struct component *i = $2; i; i = i->next) {
+        argc++;
+      }
+      argv = region_alloc_zero(
+        cfg_parser->opt->region, (argc + 1) * sizeof(char *));
+      argc = 0;
+      argv[argc++] = $1;
+      for(struct component *j, *i = $2; i; i = j) {
+        j = i->next;
+        argv[argc++] = i->str;
+        region_recycle(cfg_parser->opt->region, i, sizeof(*i));
+      }
+      $$ = argv;
+    } ;
+
+arguments:
+    /* may be empty */
+    {
+      $$ = NULL;
+    }
+  | arguments STRING
+    {
+      struct component *comp = region_alloc_zero(
+        cfg_parser->opt->region, sizeof(*comp));
+      comp->str = region_strdup(cfg_parser->opt->region, $2);
+      if($1) {
+        struct component *tail = $1;
+        while(tail->next) {
+          tail = tail->next;
+        }
+        tail->next = comp;
+        $$ = $1;
+      } else {
+        $$ = comp;
+      }
     } ;
 
 ip_address:
@@ -746,20 +890,8 @@ ip_address:
 number:
     STRING
     {
-      /* ensure string consists entirely of digits */
-      const char *str = $1;
-      size_t pos = 0;
-      while(str[pos] >= '0' && str[pos] <= '9') {
-        pos++;
-      }
-
       $$ = 0;
-      if(str[pos] == '\0') {
-        int err = errno;
-        errno = 0;
-        $$ = strtoll(str, NULL, 10);
-        errno = err;
-      } else {
+      if(!parse_number($1, &$$)) {
         yyerror("expected a number");
         YYABORT; /* trigger a parser error */
       }
@@ -769,11 +901,7 @@ boolean:
     STRING
     {
       $$ = 0;
-      if(strcmp($1, "yes") == 0) {
-        $$ = 1;
-      } else if(strcmp($1, "no") == 0) {
-        $$ = 0;
-      } else {
+      if(!parse_boolean($1, &$$)) {
         yyerror("expected yes or no");
         YYABORT; /* trigger a parser error */
       }
@@ -781,8 +909,42 @@ boolean:
 
 %%
 
+static int
+parse_boolean(const char *str, int *bln)
+{
+	if(strcmp(str, "yes") == 0) {
+		*bln = 1;
+	} else if(strcmp(str, "no") == 0) {
+		*bln = 0;
+	} else {
+		return 0;
+	}
+
+	return 1;
+}
+
+static int
+parse_number(const char *str, long long *num)
+{
+	/* ensure string consists entirely of digits */
+	size_t pos = 0;
+	while(str[pos] >= '0' && str[pos] <= '9') {
+		pos++;
+	}
+
+	if(str[pos] == '\0') {
+		int err = errno;
+		errno = 0;
+		*num = strtoll(str, NULL, 10);
+		errno = err;
+		return 1;
+	}
+
+	return 0;
+}
+
 static void
-append_acl(struct acl_options **list, struct acl_options *acl)
+append_acl(struct acl_options **list, struct acl_options* acl)
 {
 	assert(list != NULL);
 

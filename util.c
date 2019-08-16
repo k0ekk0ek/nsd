@@ -1149,3 +1149,11 @@ error(const char *format, ...)
 	exit(1);
 }
 
+void
+warning(const char *format, ...)
+{
+	va_list args;
+	va_start(args, format);
+	log_vmsg(LOG_WARNING, format, args);
+	va_end(args);
+}

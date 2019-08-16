@@ -288,17 +288,22 @@ dnstap-log-auth-query-messages{COLON}	{ LEXOUT(("v(%s) ", yytext)); return VAR_D
 dnstap-log-auth-response-messages{COLON}	{ LEXOUT(("v(%s) ", yytext)); return VAR_DNSTAP_LOG_AUTH_RESPONSE_MESSAGES; }
 log-time-ascii{COLON}	{ LEXOUT(("v(%s) ", yytext)); return VAR_LOG_TIME_ASCII;}
 round-robin{COLON}	{ LEXOUT(("v(%s) ", yytext)); return VAR_ROUND_ROBIN;}
-minimal-responses{COLON} { LEXOUT(("v(%s) ", yytext)); return VAR_MINIMAL_RESPONSES;}
+minimal-responses{COLON}	{ LEXOUT(("v(%s) ", yytext)); return VAR_MINIMAL_RESPONSES;}
 refuse-any{COLON}	{ LEXOUT(("v(%s) ", yytext)); return VAR_REFUSE_ANY;}
 max-refresh-time{COLON}	{ LEXOUT(("v(%s) ", yytext)); return VAR_MAX_REFRESH_TIME;}
 min-refresh-time{COLON}	{ LEXOUT(("v(%s) ", yytext)); return VAR_MIN_REFRESH_TIME;}
 max-retry-time{COLON}	{ LEXOUT(("v(%s) ", yytext)); return VAR_MAX_RETRY_TIME;}
 min-retry-time{COLON}	{ LEXOUT(("v(%s) ", yytext)); return VAR_MIN_RETRY_TIME;}
-multi-master-check{COLON}      { LEXOUT(("v(%s) ", yytext)); return VAR_MULTI_MASTER_CHECK;}
-tls-service-key{COLON} { LEXOUT(("v(%s) ", yytext)); return VAR_TLS_SERVICE_KEY;}
+multi-master-check{COLON}	{ LEXOUT(("v(%s) ", yytext)); return VAR_MULTI_MASTER_CHECK;}
+tls-service-key{COLON}	{ LEXOUT(("v(%s) ", yytext)); return VAR_TLS_SERVICE_KEY;}
 tls-service-ocsp{COLON}	{ LEXOUT(("v(%s) ", yytext)); return VAR_TLS_SERVICE_OCSP;}
-tls-service-pem{COLON} { LEXOUT(("v(%s) ", yytext)); return VAR_TLS_SERVICE_PEM;}
-tls-port{COLON}        { LEXOUT(("v(%s) ", yytext)); return VAR_TLS_PORT;}
+tls-service-pem{COLON}	{ LEXOUT(("v(%s) ", yytext)); return VAR_TLS_SERVICE_PEM;}
+tls-port{COLON}		{ LEXOUT(("v(%s) ", yytext)); return VAR_TLS_PORT;}
+enable{COLON}		{ LEXOUT(("v(%s) ", yytext)); return VAR_ENABLE;}
+verifier-count{COLON}	{ LEXOUT(("v(%s) ", yytext)); return VAR_VERIFIER_COUNT;}
+verifier{COLON}		{ LEXOUT(("v(%s) ", yytext)); return VAR_VERIFIER;}
+verifier-feed-zone	{ LEXOUT(("v(%s) ", yytext)); return VAR_VERIFIER_FEED_ZONE;}
+verifier-timeout	{ LEXOUT(("v(%s) ", yytext)); return VAR_VERIFIER_TIMEOUT;}
 {NEWLINE}		{ LEXOUT(("NL\n")); cfg_parser->line++;}
 
 	/* Quoted strings. Strip leading and ending quotes */

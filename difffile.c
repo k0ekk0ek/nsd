@@ -14,6 +14,7 @@
 #include <stdlib.h>
 #include <errno.h>
 #include "difffile.h"
+#include "xfrd.h"
 #include "xfrd-disk.h"
 #include "util.h"
 #include "packet.h"
@@ -72,16 +73,17 @@ diff_write_packet(const char* zone, const char* pat, uint32_t old_serial,
 				zone, strerror(errno));
 		}
 		if(!write_32(df, DIFF_PART_XFRF) ||
-			!write_8(df, 0) /* notcommitted(yet) */ ||
-			!write_32(df, 0) /* numberofparts when done */ ||
-			!write_64(df, (uint64_t) tv.tv_sec) ||
-			!write_32(df, (uint32_t) tv.tv_usec) ||
-			!write_32(df, old_serial) ||
-			!write_32(df, new_serial) ||
-			!write_64(df, (uint64_t) tv.tv_sec) ||
-			!write_32(df, (uint32_t) tv.tv_usec) ||
-			!write_str(df, zone) ||
-			!write_str(df, pat)) {
+		   !write_8(df, DIFF_NOT_COMMITTED) /* notcommitted(yet) */ ||
+		   !write_32(df, 0) /* numberofparts when done */ ||
+		   !write_64(df, (uint64_t) tv.tv_sec) ||
+		   !write_32(df, (uint32_t) tv.tv_usec) ||
+		   !write_32(df, old_serial) ||
+		   !write_32(df, new_serial) ||
+		   !write_64(df, (uint64_t) tv.tv_sec) ||
+		   !write_32(df, (uint32_t) tv.tv_usec) ||
+		   !write_str(df, zone) ||
+		   !write_str(df, pat))
+		{
 			log_msg(LOG_ERR, "could not write transfer %s file %lld: %s",
 				zone, (long long)filenumber, strerror(errno));
 			fclose(df);
@@ -97,6 +99,34 @@ diff_write_packet(const char* zone, const char* pat, uint32_t old_serial,
 		log_msg(LOG_ERR, "could not write transfer %s file %lld: %s",
 			zone, (long long)filenumber, strerror(errno));
 	}
+	fclose(df);
+}
+
+void
+diff_write_commit_status(const char* zone, struct nsd* nsd,
+	uint8_t commit, uint64_t filenumber)
+{
+	FILE *df;
+
+	assert(zone != NULL);
+	assert(nsd != NULL);
+	assert(commit == DIFF_NOT_COMMITTED ||
+	       commit == DIFF_COMMITTED ||
+	       commit == DIFF_DISCARDED);
+
+	df = xfrd_open_xfrfile(nsd, filenumber, "r+");
+	if(!df) {
+		log_msg(LOG_ERR, "could not open transfer %s file %lld: %s",
+			zone, (long long)filenumber, strerror(errno));
+		return;
+	}
+	if(!write_32(df, DIFF_PART_XFRF) || !write_8(df, commit)) {
+		log_msg(LOG_ERR, "could not write transfer %s file %lld: %s",
+			zone, (long long)filenumber, strerror(errno));
+		fclose(df);
+		return;
+	}
+	fflush(df);
 	fclose(df);
 }
 
@@ -1256,10 +1286,9 @@ check_for_bad_serial(namedb_type* db, const char* zone_str, uint32_t old_serial)
 	return 0;
 }
 
-static int
+static xfrd_xfr_state_type
 apply_ixfr_for_zone(nsd_type* nsd, zone_type* zonedb, FILE* in,
-	struct nsd_options* opt, udb_base* taskudb, udb_ptr* last_task,
-	uint32_t xfrfilenr)
+	udb_base* taskudb, udb_ptr* last_task, uint64_t xfrfilenr)
 {
 	char zone_buf[3072];
 	char log_buf[5120];
@@ -1271,159 +1300,164 @@ apply_ixfr_for_zone(nsd_type* nsd, zone_type* zonedb, FILE* in,
 	uint8_t committed;
 	uint32_t i;
 	int num_bytes = 0;
+
+	int is_axfr=0, delete_mode=0, rr_count=0, softfail=0;
+	const dname_type* apex = domain_dname_const(zonedb->apex);
+	udb_ptr z;
+
+	(void)last_task;
 	assert(zonedb);
 
 	/* read zone name and serial */
 	if(!diff_read_32(in, &type)) {
 		log_msg(LOG_ERR, "diff file too short");
-		return 0;
+		return xfrd_xfr_corrupt;
 	}
 	if(type != DIFF_PART_XFRF) {
 		log_msg(LOG_ERR, "xfr file has wrong format");
-		return 0;
-
+		return xfrd_xfr_corrupt;
 	}
+
 	/* committed and num_parts are first because they need to be
 	 * updated once the rest is written.  The log buf is not certain
 	 * until its done, so at end of file.  The patname is in case a
 	 * new zone is created, we know what the options-pattern is */
 	if(!diff_read_8(in, &committed) ||
-		!diff_read_32(in, &num_parts) ||
-		!diff_read_64(in, &time_end_0) ||
-		!diff_read_32(in, &time_end_1) ||
-		!diff_read_32(in, &old_serial) ||
-		!diff_read_32(in, &new_serial) ||
-		!diff_read_64(in, &time_start_0) ||
-		!diff_read_32(in, &time_start_1) ||
-		!diff_read_str(in, zone_buf, sizeof(zone_buf)) ||
-		!diff_read_str(in, patname_buf, sizeof(patname_buf))) {
+	   !diff_read_32(in, &num_parts) ||
+	   !diff_read_64(in, &time_end_0) ||
+	   !diff_read_32(in, &time_end_1) ||
+	   !diff_read_32(in, &old_serial) ||
+	   !diff_read_32(in, &new_serial) ||
+	   !diff_read_64(in, &time_start_0) ||
+	   !diff_read_32(in, &time_start_1) ||
+	   !diff_read_str(in, zone_buf, sizeof(zone_buf)) ||
+	   !diff_read_str(in, patname_buf, sizeof(patname_buf)))
+	{
 		log_msg(LOG_ERR, "diff file bad commit part");
-		return 0;
+		return xfrd_xfr_corrupt;
 	}
 
 	/* has been read in completely */
 	if(strcmp(zone_buf, domain_to_string(zonedb->apex)) != 0) {
 		log_msg(LOG_ERR, "file %s does not match task %s",
 			zone_buf, domain_to_string(zonedb->apex));
-		return 0;
+		return xfrd_xfr_corrupt;
 	}
-	if(!committed) {
+	if(committed == DIFF_NOT_COMMITTED) {
 		log_msg(LOG_ERR, "diff file %s was not committed", zone_buf);
-		return 0;
+		return xfrd_xfr_corrupt;
+	}
+	if(committed == DIFF_DISCARDED) {
+		log_msg(LOG_ERR, "diff file %s was discarded", zone_buf);
+		return xfrd_xfr_corrupt;
 	}
 	if(num_parts == 0) {
 		log_msg(LOG_ERR, "diff file %s was not completed", zone_buf);
-		return 0;
+		return xfrd_xfr_corrupt;
 	}
 	if(check_for_bad_serial(nsd->db, zone_buf, old_serial)) {
 		DEBUG(DEBUG_XFRD,1, (LOG_ERR,
 			"skipping diff file commit with bad serial"));
-		return 1;
+		return xfrd_xfr_corrupt;
 	}
 
-	if(committed)
-	{
-		int is_axfr=0, delete_mode=0, rr_count=0, softfail=0;
-		const dname_type* apex = domain_dname_const(zonedb->apex);
-		udb_ptr z;
+	assert(committed == DIFF_COMMITTED);
 
-		DEBUG(DEBUG_XFRD,1, (LOG_INFO, "processing xfr: %s", zone_buf));
-		memset(&z, 0, sizeof(z)); /* if udb==NULL, have &z defined */
-		if(nsd->db->udb) {
-			if(udb_base_get_userflags(nsd->db->udb) != 0) {
-				log_msg(LOG_ERR, "database corrupted, cannot update");
-				xfrd_unlink_xfrfile(nsd, xfrfilenr);
-				exit(1);
-			}
-			/* all parts were checked by xfrd before commit */
-			if(!udb_zone_search(nsd->db->udb, &z, dname_name(apex),
+	DEBUG(DEBUG_XFRD,1, (LOG_INFO, "processing xfr: %s", zone_buf));
+	memset(&z, 0, sizeof(z)); /* if udb==NULL, have &z defined */
+	if(nsd->db->udb) {
+		if(udb_base_get_userflags(nsd->db->udb) != 0) {
+			log_msg(LOG_ERR, "database corrupted, cannot update");
+			diff_write_commit_status(
+				zone_buf, nsd, DIFF_DISCARDED, xfrfilenr);
+			exit(1);
+		}
+		/* all parts were checked by xfrd before commit */
+		if(!udb_zone_search(nsd->db->udb, &z, dname_name(apex),
+			apex->name_size)) {
+			/* create it */
+			if(!udb_zone_create(nsd->db->udb, &z, dname_name(apex),
 				apex->name_size)) {
-				/* create it */
-				if(!udb_zone_create(nsd->db->udb, &z, dname_name(apex),
-					apex->name_size)) {
-					/* out of disk space perhaps */
-					log_msg(LOG_ERR, "could not udb_create_zone "
-						"%s, disk space full?", log_buf);
-					return 0;
-				}
-			}
-			/* set the udb dirty until we are finished applying changes */
-			udb_base_set_userflags(nsd->db->udb, 1);
-		}
-		/* read and apply all of the parts */
-		for(i=0; i<num_parts; i++) {
-			int ret;
-			DEBUG(DEBUG_XFRD,2, (LOG_INFO, "processing xfr: apply part %d", (int)i));
-			ret = apply_ixfr(nsd->db, in, zone_buf, new_serial, opt,
-				i, num_parts, &is_axfr, &delete_mode,
-				&rr_count, (nsd->db->udb?&z:NULL), &zonedb,
-				patname_buf, &num_bytes, &softfail);
-			assert(zonedb);
-			if(ret == 0) {
-				log_msg(LOG_ERR, "bad ixfr packet part %d in diff file for %s", (int)i, zone_buf);
-				xfrd_unlink_xfrfile(nsd, xfrfilenr);
-				/* the udb is still dirty, it is bad */
-				exit(1);
-			} else if(ret == 2) {
-				break;
+				/* out of disk space perhaps */
+				log_msg(LOG_ERR, "could not udb_create_zone "
+					"%s, disk space full?", log_buf);
+				return xfrd_xfr_corrupt;
 			}
 		}
-		if(nsd->db->udb)
-			udb_base_set_userflags(nsd->db->udb, 0);
-		/* read the final log_str: but do not fail on it */
-		if(!diff_read_str(in, log_buf, sizeof(log_buf))) {
-			log_msg(LOG_ERR, "could not read log for transfer %s",
-				zone_buf);
-			snprintf(log_buf, sizeof(log_buf), "error reading log");
+		/* set the udb dirty until we are finished applying changes */
+		udb_base_set_userflags(nsd->db->udb, 1);
+	}
+	/* read and apply all of the parts */
+	for(i=0; i<num_parts; i++) {
+		int ret;
+		DEBUG(DEBUG_XFRD,2, (LOG_INFO, "processing xfr: apply part %d", (int)i));
+		ret = apply_ixfr(nsd->db, in, zone_buf, new_serial, nsd->options,
+			i, num_parts, &is_axfr, &delete_mode,
+			&rr_count, (nsd->db->udb?&z:NULL), &zonedb,
+			patname_buf, &num_bytes, &softfail);
+		assert(zonedb);
+		if(ret == 0) {
+			log_msg(LOG_ERR, "bad ixfr packet part %d in diff file for %s", (int)i, zone_buf);
+			diff_write_commit_status(
+				zone_buf, nsd, DIFF_DISCARDED, xfrfilenr);
+			/* the udb is still dirty, it is bad */
+			exit(1);
+		} else if(ret == 2) {
+			break;
 		}
+	}
+	if(nsd->db->udb)
+		udb_base_set_userflags(nsd->db->udb, 0);
+	/* read the final log_str: but do not fail on it */
+	if(!diff_read_str(in, log_buf, sizeof(log_buf))) {
+		log_msg(LOG_ERR, "could not read log for transfer %s",
+			zone_buf);
+		snprintf(log_buf, sizeof(log_buf), "error reading log");
+	}
 #ifdef NSEC3
-		if(zonedb) prehash_zone(nsd->db, zonedb);
+	if(zonedb) prehash_zone(nsd->db, zonedb);
 #endif /* NSEC3 */
-		zonedb->is_changed = 1;
-		if(nsd->db->udb) {
-			assert(z.base);
-			ZONE(&z)->is_changed = 1;
-			ZONE(&z)->mtime = time_end_0;
-			ZONE(&z)->mtime_nsec = time_end_1*1000;
-			udb_zone_set_log_str(nsd->db->udb, &z, log_buf);
-			udb_zone_set_file_str(nsd->db->udb, &z, NULL);
-			udb_ptr_unlink(&z, nsd->db->udb);
-		} else {
-			zonedb->mtime.tv_sec = time_end_0;
-			zonedb->mtime.tv_nsec = time_end_1*1000;
-			if(zonedb->logstr)
-				region_recycle(nsd->db->region, zonedb->logstr,
-					strlen(zonedb->logstr)+1);
-			zonedb->logstr = region_strdup(nsd->db->region, log_buf);
-			if(zonedb->filename)
-				region_recycle(nsd->db->region, zonedb->filename,
-					strlen(zonedb->filename)+1);
-			zonedb->filename = NULL;
-		}
-		if(softfail && taskudb && !is_axfr) {
-			log_msg(LOG_ERR, "Failed to apply IXFR cleanly "
-				"(deletes nonexistent RRs, adds existing RRs). "
-				"Zone %s contents is different from master, "
-				"starting AXFR. Transfer %s", zone_buf, log_buf);
-			/* add/del failures in IXFR, get an AXFR */
-			task_new_soainfo(taskudb, last_task, zonedb, 1);
-		} else {
-			if(taskudb)
-				task_new_soainfo(taskudb, last_task, zonedb, 0);
-		}
+	zonedb->is_changed = 1;
+	if(nsd->db->udb) {
+		assert(z.base);
+		ZONE(&z)->is_changed = 1;
+		ZONE(&z)->mtime = time_end_0;
+		ZONE(&z)->mtime_nsec = time_end_1*1000;
+		udb_zone_set_log_str(nsd->db->udb, &z, log_buf);
+		udb_zone_set_file_str(nsd->db->udb, &z, NULL);
+		udb_ptr_unlink(&z, nsd->db->udb);
+	} else {
+		zonedb->mtime.tv_sec = time_end_0;
+		zonedb->mtime.tv_nsec = time_end_1*1000;
+		if(zonedb->logstr)
+			region_recycle(nsd->db->region, zonedb->logstr,
+				strlen(zonedb->logstr)+1);
+		zonedb->logstr = region_strdup(nsd->db->region, log_buf);
+		if(zonedb->filename)
+			region_recycle(nsd->db->region, zonedb->filename,
+				strlen(zonedb->filename)+1);
+		zonedb->filename = NULL;
+	}
+	if(softfail && taskudb && !is_axfr) {
+		log_msg(LOG_ERR, "Failed to apply IXFR cleanly "
+			"(deletes nonexistent RRs, adds existing RRs). "
+			"Zone %s contents is different from master, "
+			"starting AXFR. Transfer %s", zone_buf, log_buf);
+		/* add/del failures in IXFR, get an AXFR */
+		return xfrd_xfr_corrupt;
+	} else if(taskudb) {
+		return xfrd_xfr_ok;
+	}
 
-		if(1 <= verbosity) {
-			double elapsed = (double)(time_end_0 - time_start_0)+
-				(double)((double)time_end_1
-				-(double)time_start_1) / 1000000.0;
-			VERBOSITY(1, (LOG_INFO, "zone %s %s of %d bytes in %g seconds",
-				zone_buf, log_buf, num_bytes, elapsed));
-		}
+	if(1 <= verbosity) {
+		double elapsed = (double)(time_end_0 - time_start_0)+
+			(double)((double)time_end_1
+			-(double)time_start_1) / 1000000.0;
+		VERBOSITY(1, (LOG_INFO, "zone %s %s of %d bytes in %g seconds",
+			zone_buf, log_buf, num_bytes, elapsed));
 	}
-	else {
-	 	DEBUG(DEBUG_XFRD,1, (LOG_INFO, "skipping xfr: %s", log_buf));
-	}
-	return 1;
+
+	return xfrd_xfr_ok;
 }
 
 struct udb_base* task_file_create(const char* file)
@@ -1458,9 +1492,11 @@ task_create_new_elem(struct udb_base* udb, udb_ptr* last, udb_ptr* e,
 	return 1;
 }
 
-void task_new_soainfo(struct udb_base* udb, udb_ptr* last, struct zone* z,
-	int gone)
+void task_new_soainfo(
+	struct udb_base* udb, udb_ptr* last, struct zone* z, uint32_t serial,
+	xfrd_xfr_state_type state)
 {
+	uint32_t rrserial = 0;
 	/* calculate size */
 	udb_ptr e;
 	size_t sz;
@@ -1472,13 +1508,18 @@ void task_new_soainfo(struct udb_base* udb, udb_ptr* last, struct zone* z,
 		domain_to_string(z->apex)));
 	apex = domain_dname(z->apex);
 	sz = sizeof(struct task_list_d) + dname_total_size(apex);
-	if(z->soa_rrset && !gone) {
+	if((z->soa_rrset) &&
+	   (state == xfrd_xfr_ok || state == xfrd_xfr_drop))
+	{
 		ns = domain_dname(rdata_atom_domain(
 			z->soa_rrset->rrs[0].rdatas[0]));
 		em = domain_dname(rdata_atom_domain(
 			z->soa_rrset->rrs[0].rdatas[1]));
 		sz += sizeof(uint32_t)*6 + sizeof(uint8_t)*2
 			+ ns->name_size + em->name_size;
+		memmove(&rrserial,
+		        rdata_atom_data(z->soa_rrset->rrs[0].rdatas[2]),
+		        sizeof(uint32_t));
 	} else {
 		ns = 0;
 		em = 0;
@@ -1489,9 +1530,13 @@ void task_new_soainfo(struct udb_base* udb, udb_ptr* last, struct zone* z,
 		log_msg(LOG_ERR, "tasklist: out of space, cannot add SOAINFO");
 		return;
 	}
+	TASKLIST(&e)->newserial = serial ? serial : rrserial;
 	TASKLIST(&e)->task_type = task_soa_info;
+	TASKLIST(&e)->yesno = (uint64_t)state;
 
-	if(z->soa_rrset && !gone) {
+	if((z->soa_rrset) &&
+	   (state == xfrd_xfr_ok || state == xfrd_xfr_drop))
+	{
 		uint32_t ttl = htonl(z->soa_rrset->rrs[0].ttl);
 		uint8_t* p = (uint8_t*)TASKLIST(&e)->zname;
 		p += dname_total_size(apex);
@@ -2005,6 +2050,8 @@ task_process_apply_xfr(struct nsd* nsd, udb_base* udb, udb_ptr *last_task,
 	 * appends soa_info which may remap and change the pointer. */
 	zone_type* zone;
 	FILE* df;
+	xfrd_xfr_state_type state;
+
 	DEBUG(DEBUG_IPC,1, (LOG_INFO, "applyxfr task %s", dname_to_string(
 		TASKLIST(task)->zname, NULL)));
 	zone = namedb_find_zone(nsd->db, TASKLIST(task)->zname);
@@ -2025,16 +2072,28 @@ task_process_apply_xfr(struct nsd* nsd, udb_base* udb, udb_ptr *last_task,
 		return;
 	}
 	/* read and apply zone transfer */
-	if(!apply_ixfr_for_zone(nsd, zone, df, nsd->options, udb,
-		last_task, TASKLIST(task)->yesno)) {
-		/* there is no reply to xfrd failed-update,
-		 * because xfrd has a scan for apply-failures. */
+	state = apply_ixfr_for_zone(
+		nsd, zone, df, udb, last_task, TASKLIST(task)->yesno);
+	switch(state) {
+	case xfrd_xfr_corrupt:
+		diff_write_commit_status(
+			dname_to_string(TASKLIST(task)->zname, NULL),
+			nsd,
+			DIFF_DISCARDED,
+			TASKLIST(task)->yesno);
+		task_new_soainfo(
+			udb, last_task, zone, TASKLIST(task)->newserial, state);
+		break;
+	default:
+		assert(state == xfrd_xfr_ok);
+		/* successfully committed zone transfers are communicated from
+		   server_reload. After verification (if enabled) because a
+		   zone may still fail verification. */
+		break;
 	}
 
 	fclose(df);
-	xfrd_unlink_xfrfile(nsd, TASKLIST(task)->yesno);
 }
-
 
 void task_process_in_reload(struct nsd* nsd, udb_base* udb, udb_ptr *last_task,
         udb_ptr* task)

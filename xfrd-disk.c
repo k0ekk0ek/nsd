@@ -20,6 +20,7 @@
 #include "buffer.h"
 #include "nsd.h"
 #include "options.h"
+#include "difffile.h"
 
 /* quick tokenizer, reads words separated by whitespace.
    No quoted strings. Comments are skipped (#... eol). */
@@ -332,8 +333,13 @@ xfrd_read_state(struct xfrd_state* xfrd)
 		{
 			xfrd_send_expire_notification(zone);
 		}
-		if(incoming_acquired != 0)
-			xfrd_handle_incoming_soa(zone, &incoming_soa, incoming_acquired);
+		if(incoming_acquired != 0) {
+			xfrd_handle_incoming_soa(zone,
+			                        &incoming_soa,
+			                         incoming_soa.serial,
+			                         incoming_acquired,
+			                         xfrd_xfr_new);
+		}
 	}
 
 	if(!xfrd_read_check_str(in, XFRD_FILE_MAGIC)) {

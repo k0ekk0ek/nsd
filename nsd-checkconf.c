@@ -22,77 +22,77 @@ extern char *optarg;
 extern int optind;
 static void usage(void) ATTR_NORETURN;
 
-#define ZONE_GET_ACL(NAME, VAR, PATTERN) 		\
-	if (strcasecmp(#NAME, (VAR)) == 0) { 	\
-		quote_acl(PATTERN->NAME); 	\
-		return; 			\
+#define ZONE_GET_ACL(NAME, VAR, PATTERN) 			\
+	if (strcasecmp(#NAME, (VAR)) == 0) { 			\
+		quote_acl(PATTERN->NAME); 			\
+		return; 					\
 	}
 
 #define ZONE_GET_OUTGOING(NAME, VAR, PATTERN)			\
-	if (strcasecmp(#NAME, (VAR)) == 0) {		\
-		acl_options_type* acl; 			\
+	if (strcasecmp(#NAME, (VAR)) == 0) {			\
+		acl_options_type* acl; 				\
 		for(acl=PATTERN->NAME; acl; acl=acl->next)	\
-			quote(acl->ip_address_spec);	\
-		return; 				\
+			quote(acl->ip_address_spec);		\
+		return; 					\
 	}
 
-#define ZONE_GET_STR(NAME, VAR, PATTERN) 		\
-	if (strcasecmp(#NAME, (VAR)) == 0) { 	\
-		quote(PATTERN->NAME); 		\
-		return; 			\
+#define ZONE_GET_STR(NAME, VAR, PATTERN)			\
+	if (strcasecmp(#NAME, (VAR)) == 0) {			\
+		quote(PATTERN->NAME);				\
+		return;						\
 	}
 
-#define ZONE_GET_PATH(FINAL, NAME, VAR, PATTERN) 	\
-	if (strcasecmp(#NAME, (VAR)) == 0) { 		\
-		quotepath(opt, FINAL, PATTERN->NAME); 	\
-		return; 				\
+#define ZONE_GET_PATH(FINAL, NAME, VAR, PATTERN)		\
+	if (strcasecmp(#NAME, (VAR)) == 0) {			\
+		quotepath(opt, FINAL, PATTERN->NAME);		\
+		return;						\
 	}
 
-#define ZONE_GET_BIN(NAME, VAR, PATTERN) 			\
-	if (strcasecmp(#NAME, (VAR)) == 0) { 		\
-		printf("%s\n", (PATTERN->NAME)?"yes":"no"); 	\
-		return;					\
+#define ZONE_GET_BIN(NAME, VAR, PATTERN)			\
+	if (strcasecmp(#NAME, (VAR)) == 0) {			\
+		printf("%s\n", (PATTERN->NAME)?"yes":"no");	\
+		return;						\
 	}
 
-#define ZONE_GET_RRL(NAME, VAR, PATTERN) 			\
-	if (strcasecmp(#NAME, (VAR)) == 0) { 		\
+#define ZONE_GET_RRL(NAME, VAR, PATTERN)			\
+	if (strcasecmp(#NAME, (VAR)) == 0) {			\
 		zone_print_rrl_whitelist("", PATTERN->NAME);	\
-		return;					\
+		return;						\
 	}
 
-#define ZONE_GET_INT(NAME, VAR, PATTERN) 		\
-	if (strcasecmp(#NAME, (VAR)) == 0) { 	\
-		printf("%d\n", (int) PATTERN->NAME); 	\
-		return; 			\
+#define ZONE_GET_INT(NAME, VAR, PATTERN)			\
+	if (strcasecmp(#NAME, (VAR)) == 0) {			\
+		printf("%d\n", (int) PATTERN->NAME);		\
+		return;						\
 	}
 
-#define SERV_GET_BIN(NAME, VAR) 			\
-	if (strcasecmp(#NAME, (VAR)) == 0) { 		\
-		printf("%s\n", opt->NAME?"yes":"no"); 	\
-		return;					\
+#define SERV_GET_BIN(NAME, VAR)					\
+	if (strcasecmp(#NAME, (VAR)) == 0) {			\
+		printf("%s\n", opt->NAME?"yes":"no");		\
+		return;						\
 	}
 
-#define SERV_GET_STR(NAME, VAR) 		\
-	if (strcasecmp(#NAME, (VAR)) == 0) { 	\
-		quote(opt->NAME); 		\
-		return; 			\
+#define SERV_GET_STR(NAME, VAR)					\
+	if (strcasecmp(#NAME, (VAR)) == 0) {			\
+		quote(opt->NAME);				\
+		return;						\
 	}
 
-#define SERV_GET_PATH(FINAL, NAME, VAR) 	\
-	if (strcasecmp(#NAME, (VAR)) == 0) { 	\
-		quotepath(opt, FINAL, opt->NAME); 	\
-		return; 			\
+#define SERV_GET_PATH(FINAL, NAME, VAR)				\
+	if (strcasecmp(#NAME, (VAR)) == 0) {			\
+		quotepath(opt, FINAL, opt->NAME);		\
+		return;						\
 	}
 
-#define SERV_GET_INT(NAME, VAR) 		\
-	if (strcasecmp(#NAME, (VAR)) == 0) { 	\
-		printf("%d\n", (int) opt->NAME); 	\
-		return; 			\
+#define SERV_GET_INT(NAME, VAR)					\
+	if (strcasecmp(#NAME, (VAR)) == 0) {			\
+		printf("%d\n", (int) opt->NAME);		\
+		return;						\
 	}
 
-#define SERV_GET_IP(NAME, MEMBER, VAR) 				\
-	if (strcasecmp(#NAME, (VAR)) == 0) { 		\
-		for(ip = opt->MEMBER; ip; ip=ip->next)	\
+#define SERV_GET_IP(NAME, MEMBER, VAR)				\
+	if (strcasecmp(#NAME, (VAR)) == 0) {			\
+		for(ip = opt->MEMBER; ip; ip=ip->next)		\
 		{						\
 			quote(ip->address);			\
 		}						\
@@ -483,6 +483,33 @@ static void print_zone_content_elems(pattern_options_type* pat)
 	if(pat->size_limit_xfr != 0)
 		printf("\tsize-limit-xfr: %llu\n",
 			(long long unsigned)pat->size_limit_xfr);
+	if(pat->verifier)
+	{
+		printf("\tverifier:");
+		for(char *const *s = pat->verifier; *s; s++)
+		{
+			printf(" \"%s\"", *s);
+		}
+		printf("\n");
+	}
+	{
+		printf("\tverifier-feed-zone: ");
+		if(pat->verifier_feed_zone == ZONE_VERIFIER_FEED_ZONE_INHERIT)
+			printf("inherit");
+		else if(pat->verifier_feed_zone)
+			printf("yes");
+		else
+			printf("no");
+		printf("\n");
+	}
+	{
+		printf("\tverifier-timeout: ");
+		if(pat->verifier_timeout == ZONE_VERIFIER_TIMEOUT_INHERIT)
+			printf("inherit");
+		else
+			printf("%"PRId32, pat->verifier_timeout);
+		printf("\n");
+	}
 }
 
 void
@@ -575,6 +602,25 @@ config_test_print_server(nsd_options_type* opt)
 	print_string_var("server-cert-file:", opt->server_cert_file);
 	print_string_var("control-key-file:", opt->control_key_file);
 	print_string_var("control-cert-file:", opt->control_cert_file);
+
+	printf("\nverify:\n");
+	printf("\tenable: %s\n", opt->verify_enable?"yes":"no");
+	for(ip = opt->verify_ip_addresses; ip; ip=ip->next)
+	{
+		print_string_var("ip-address:", ip->address);
+	}
+	printf("\tport: %s\n", opt->verify_port);
+	if(opt->verifier) {
+		printf("\tverifier:");
+		for(char **s = opt->verifier; *s; s++)
+		{
+			printf(" \"%s\"", *s);
+		}
+		printf("\n");
+	}
+	printf("\tverifier-count: %d\n", opt->verifier_count);
+	printf("\tverifier-feed-zone: %s\n", opt->verifier_feed_zone?"yes":"no");
+	printf("\tverifier-timeout: %d\n", opt->verifier_timeout);
 
 	RBTREE_FOR(key, key_options_type*, opt->keys)
 	{

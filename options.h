@@ -27,6 +27,10 @@ typedef struct ip_address_option ip_address_option_type;
 typedef struct acl_options acl_options_type;
 typedef struct key_options key_options_type;
 typedef struct config_parser_state config_parser_state_type;
+
+#define ZONE_VERIFIER_FEED_ZONE_INHERIT (2)
+#define ZONE_VERIFIER_TIMEOUT_INHERIT (-1)
+
 /*
  * Options global for nsd.
  */
@@ -155,6 +159,21 @@ struct nsd_options {
 	/** true to log dnstap AUTH_RESPONSE message events */
 	int dnstap_log_auth_response_messages;
 
+	/** enable verify */
+	int verify_enable;
+        /** list of ip addresses used to serve zones for verification */
+	struct ip_address_option* verify_ip_addresses;
+	/** default port 5347 */
+	char *verify_port;
+	/** default command to verify zones with */
+	char **verifier;
+	/** maximum number of verifiers that may run simultaneously */
+	int verifier_count;
+	/** whether or not to feed the zone to the verifier over stdin */
+	uint8_t verifier_feed_zone;
+	/** maximum number of seconds that a verifier may take */
+	uint32_t verifier_timeout;
+
 	region_type* region;
 };
 
@@ -195,6 +214,9 @@ struct pattern_options {
 	uint8_t min_retry_time_is_default;
 	uint64_t size_limit_xfr;
 	uint8_t multi_master_check;
+	char **verifier;
+	uint8_t verifier_feed_zone;
+	int32_t verifier_timeout;
 } ATTR_PACKED;
 
 #define PATTERN_IMPLICIT_MARKER "_implicit_"

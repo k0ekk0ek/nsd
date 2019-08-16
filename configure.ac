@@ -630,6 +630,11 @@ AC_CHECK_FUNCS([arc4random arc4random_uniform])
 AC_SEARCH_LIBS([setusercontext],[util],[AC_CHECK_HEADERS([login_cap.h])])
 AC_CHECK_FUNCS([tzset alarm chroot dup2 endpwent gethostname memset memcpy pwrite socket strcasecmp strchr strdup strerror strncasecmp strtol writev getaddrinfo getnameinfo freeaddrinfo gai_strerror sigaction sigprocmask strptime strftime localtime_r setusercontext glob initgroups setresuid setreuid setresgid setregid getpwnam mmap ppoll clock_gettime accept4])
 
+AC_CHECK_TYPE([struct mmsghdr], AC_DEFINE(HAVE_MMSGHDR, 1, [If sys/socket.h has a struct mmsghdr.]), [], [
+AC_INCLUDES_DEFAULT
+#include <sys/socket.h>
+])
+
 AC_ARG_ENABLE(recvmmsg, AC_HELP_STRING([--enable-recvmmsg], [Enable recvmmsg and sendmmsg compilation, faster but some kernel versions may have implementation problems for IPv6]))
 case "$enable_recvmmsg" in
         yes)
@@ -743,6 +748,7 @@ AC_DEFINE_UNQUOTED([TLS_PORT], ["853"], [Define to the default DNS over TLS port
 AC_DEFINE_UNQUOTED([MAXSYSLOGMSGLEN], [512], [Define to the maximum message length to pass to syslog.])
 AC_DEFINE_UNQUOTED([NSD_CONTROL_PORT], [8952], [Define to the default nsd-control port.])
 AC_DEFINE_UNQUOTED([NSD_CONTROL_VERSION], [1], [Define to nsd-control proto version.])
+AC_DEFINE_UNQUOTED([VERIFY_UDP_PORT], ["5347"], [Define to the default zone verification udp port.])
 
 dnl
 dnl Determine the syslog facility to use

@@ -65,6 +65,13 @@ struct dt_collector;
  * port53 is free when all of nsd's processes have exited at shutdown time
  */
 #define NSD_QUIT_CHILD 11
+/*
+ * This is the exit code of a nsd "new master" child process to indicate to
+ * the master process that some zones failed verification and that it should
+ * reload again, reprocessing the difffiles. The master process will resend
+ * the command to xfrd so it will not reload from xfrd yet.
+ */
+#define NSD_RELOAD_AGAIN 14
 
 #define NSD_SERVER_MAIN 0x0U
 #define NSD_SERVER_UDP  0x1U
@@ -110,11 +117,14 @@ typedef	unsigned long stc_type;
 #define	ZTATUP2(nsd, zone, stc, i) /* Nothing */
 #endif /* USE_ZONE_STATS */
 
+#define NSD_SOCKET_IS_OPTIONAL (1<<0)
+
 struct nsd_socket
 {
 	struct addrinfo	*	addr;
 	int			s;
 	int			fam;
+	int			flags;
 };
 
 struct nsd_child
@@ -214,7 +224,6 @@ struct	nsd
 
 	/* number of interfaces */
 	size_t	ifs;
-	uint8_t grab_ip6_optional;
 	/* non0 if so_reuseport is in use, if so, tcp, udp array increased */
 	int reuseport;
 
@@ -223,6 +232,12 @@ struct	nsd
 
 	/* UDP specific configuration (array size ifs) */
 	struct nsd_socket* udp;
+
+	/* Interfaces used for verifying by a verifier.
+	 */
+	size_t verify_ifs;
+	struct nsd_socket *verify_tcp;
+	struct nsd_socket *verify_udp;
 
 	edns_data_type edns_ipv4;
 #if defined(INET6)

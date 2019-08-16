@@ -19,6 +19,7 @@
 
 #include "namedb.h"
 #include "nsec3.h"
+#include "verify.h"
 
 static domain_type *
 allocate_domain_info(domain_table_type* table,

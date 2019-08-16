@@ -277,6 +277,7 @@ namedb_zone_create(namedb_type* db, const dname_type* dname,
 	zone->is_secure = 0;
 	zone->is_changed = 0;
 	zone->is_ok = 1;
+	zone->is_bad = 0;
 	return zone;
 }
 
@@ -531,10 +532,16 @@ namedb_read_zonefile(struct nsd* nsd, struct zone* zone, udb_base* taskudb,
 		if(nonexist) {
 			VERBOSITY(2, (LOG_INFO, "zonefile %s does not exist",
 				fname));
-		} else
+		} else {
 			log_msg(LOG_ERR, "zonefile %s: %s",
 				fname, strerror(errno));
-		if(taskudb) task_new_soainfo(taskudb, last_task, zone, 0);
+		}
+		if(taskudb) {
+			/* no soa information available, set serial to 0 so
+			   xfrd will refresh */
+			task_new_soainfo(
+				taskudb, last_task, zone, 0U, xfrd_xfr_new);
+		}
 		return;
 	} else {
 		const char* zone_fname = zone->filename;
@@ -593,7 +600,10 @@ namedb_read_zonefile(struct nsd* nsd, struct zone* zone, udb_base* taskudb,
 			if(!udb_zone_search(nsd->db->udb, &z, dname_name(domain_dname(
 				zone->apex)), domain_dname(zone->apex)->name_size)) {
 				/* tell that zone contents has been lost */
-				if(taskudb) task_new_soainfo(taskudb, last_task, zone, 0);
+				if(taskudb) {
+					task_new_soainfo(
+						taskudb, last_task, zone, 0U, xfrd_xfr_new);
+				}
 				return;
 			}
 			/* read from udb */
@@ -640,7 +650,9 @@ namedb_read_zonefile(struct nsd* nsd, struct zone* zone, udb_base* taskudb,
 			zone->logstr = NULL;
 		}
 	}
-	if(taskudb) task_new_soainfo(taskudb, last_task, zone, 0);
+	if(taskudb) {
+		task_new_soainfo(taskudb, last_task, zone, 0U, xfrd_xfr_new);
+	}
 #ifdef NSEC3
 	prehash_zone_complete(nsd->db, zone);
 #endif

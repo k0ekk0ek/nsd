@@ -1,3 +1,7 @@
+12 July 2019: Jeroen
+	- Port support for zone verification from CreDNS (fork of NSD3.2) to
+	  NSD 4.3.0 release.
+
 17 July 2019: Wouter
 	- Fix that NSD warns for wrong length of the hash in SSHFP records.
 
