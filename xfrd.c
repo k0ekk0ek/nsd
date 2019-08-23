@@ -908,16 +908,25 @@ xfrd_handle_zone(int ATTR_UNUSED(fd), short event, void* arg)
 		return;
 	}
 
-	if(zone->soa_disk_acquired)
-	{
-		if (zone->state != xfrd_zone_expired &&
-			xfrd_time() >= zone->soa_disk_acquired + (time_t)ntohl(zone->soa_disk.expire)) {
+	if(zone->soa_disk_acquired || zone->soa_nsd_acquired) {
+		xfrd_soa_type *soa;
+		time_t elapsed = xfrd_time() - zone->soa_nsd_acquired;
+
+		if(zone->soa_disk_acquired) {
+			soa = &zone->soa_disk;
+		} else {
+			soa = &zone->soa_nsd;
+		}
+
+		if(zone->state != xfrd_zone_expired &&
+		   elapsed >= (time_t)ntohl(zone->soa_nsd.expire))
+		{
 			/* zone expired */
 			log_msg(LOG_ERR, "xfrd: zone %s has expired", zone->apex_str);
 			xfrd_set_zone_state(zone, xfrd_zone_expired);
-		}
-		else if(zone->state == xfrd_zone_ok &&
-			xfrd_time() >= zone->soa_disk_acquired + (time_t)ntohl(zone->soa_disk.refresh)) {
+		} else if(zone->state == xfrd_zone_ok &&
+		          elapsed >= (time_t)ntohl(zone->soa_nsd.refresh))
+		{
 			/* zone goes to refreshing state. */
 			DEBUG(DEBUG_XFRD,1, (LOG_INFO, "xfrd: zone %s is refreshing", zone->apex_str));
 			xfrd_set_zone_state(zone, xfrd_zone_refreshing);
@@ -1011,9 +1020,9 @@ xfrd_make_request(xfrd_zone_type* zone)
 	DEBUG(DEBUG_XFRD,1, (LOG_INFO, "xfrd zone %s make request round %d mr %d nx %d",
 		zone->apex_str, zone->round_num, zone->master_num, zone->next_master));
 	/* perform xfr request */
-	if (!zone->master->use_axfr_only && zone->soa_disk_acquired > 0 &&
-		!zone->master->ixfr_disabled) {
-
+	if (!zone->master->use_axfr_only && !zone->master->ixfr_disabled &&
+		(zone->soa_nsd_acquired > 0 || zone->soa_disk_acquired > 0))
+	{
 		if (zone->master->allow_udp) {
 			xfrd_set_timer(zone, XFRD_UDP_TIMEOUT);
 			xfrd_udp_obtain(zone);
@@ -1023,7 +1032,9 @@ xfrd_make_request(xfrd_zone_type* zone)
 			xfrd_tcp_obtain(xfrd->tcp_set, zone);
 		}
 	}
-	else if (zone->master->use_axfr_only || zone->soa_disk_acquired <= 0) {
+	else if (zone->master->use_axfr_only ||
+		(zone->soa_nsd_acquired <= 0 && zone->soa_disk_acquired <= 0))
+	{
 		xfrd_set_timer(zone, xfrd->tcp_set->tcp_timeout);
 		xfrd_tcp_obtain(xfrd->tcp_set, zone);
 	}
@@ -1586,6 +1597,7 @@ static int
 xfrd_send_ixfr_request_udp(xfrd_zone_type* zone)
 {
 	int fd;
+	xfrd_soa_type *soa;
 
 	/* make sure we have a master to query the ixfr request to */
 	assert(zone->master);
@@ -1605,7 +1617,18 @@ xfrd_send_ixfr_request_udp(xfrd_zone_type* zone)
 	DEBUG(DEBUG_XFRD,1, (LOG_INFO, "sent query with ID %d", zone->query_id));
         NSCOUNT_SET(xfrd->packet, 1);
 
-	xfrd_write_soa_buffer(xfrd->packet, zone->apex, &zone->soa_notified);
+	/* request ixfr based on soa_notified by default. fall back to
+	   soa_disk (newest) or soa_nsd. i.e. continue from newest */
+	soa = &zone->soa_notified;
+	if(zone->soa_notified_acquired == 0) {
+		if(zone->soa_disk_acquired != 0) {
+			soa = &zone->soa_disk;
+		} else if(zone->soa_nsd_acquired != 0) {
+			soa = &zone->soa_nsd;
+		}
+	}
+
+	xfrd_write_soa_buffer(xfrd->packet, zone->apex, soa);
 	/* if we have tsig keys, sign the ixfr query */
 	if(zone->master->key_options && zone->master->key_options->tsig_key) {
 		xfrd_tsig_sign_request(xfrd->packet, &zone->latest_xfr->tsig, zone->master);
@@ -1723,12 +1746,18 @@ xfrd_xfr_check_rrs(xfrd_zone_type* zone, buffer_type* packet, size_t count,
 			{
 				/* 2nd RR is SOA with lower serial, this is an IXFR */
 				zone->latest_xfr->msg_is_ixfr = 1;
-				if(!zone->soa_disk_acquired) {
+				if(zone->soa_disk_acquired == 0 &&
+				   zone->soa_nsd_acquired == 0)
+				{
 					DEBUG(DEBUG_XFRD,1, (LOG_ERR, "xfrd: zone %s xfr "
 						"got ixfr but need axfr", zone->apex_str));
 					return 0; /* got IXFR but need AXFR */
 				}
-				if(ntohl(soa->serial) != ntohl(zone->soa_disk.serial)) {
+				if((zone->soa_disk_acquired != 0 &&
+					ntohl(soa->serial) != ntohl(zone->soa_disk.serial)) ||
+				   (zone->soa_nsd_acquired != 0 &&
+					ntohl(soa->serial) != ntohl(zone->soa_nsd.serial)))
+				{
 					DEBUG(DEBUG_XFRD,1, (LOG_ERR, "xfrd: zone %s xfr "
 						"bad start serial", zone->apex_str));
 					return 0; /* bad start serial in IXFR */

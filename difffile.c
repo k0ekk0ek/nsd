@@ -1508,9 +1508,7 @@ void task_new_soainfo(
 		domain_to_string(z->apex)));
 	apex = domain_dname(z->apex);
 	sz = sizeof(struct task_list_d) + dname_total_size(apex);
-	if((z->soa_rrset) &&
-	   (state == xfrd_xfr_ok || state == xfrd_xfr_drop))
-	{
+	if(z->soa_rrset && state != xfrd_xfr_corrupt) {
 		ns = domain_dname(rdata_atom_domain(
 			z->soa_rrset->rrs[0].rdatas[0]));
 		em = domain_dname(rdata_atom_domain(
@@ -1534,9 +1532,7 @@ void task_new_soainfo(
 	TASKLIST(&e)->task_type = task_soa_info;
 	TASKLIST(&e)->yesno = (uint64_t)state;
 
-	if((z->soa_rrset) &&
-	   (state == xfrd_xfr_ok || state == xfrd_xfr_drop))
-	{
+	if(z->soa_rrset && state != xfrd_xfr_corrupt) {
 		uint32_t ttl = htonl(z->soa_rrset->rrs[0].ttl);
 		uint8_t* p = (uint8_t*)TASKLIST(&e)->zname;
 		p += dname_total_size(apex);
