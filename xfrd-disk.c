@@ -321,7 +321,7 @@ xfrd_read_state(struct xfrd_state* xfrd)
 		incoming_soa = zone->soa_nsd;
 		incoming_acquired = zone->soa_nsd_acquired;
 		zone->soa_nsd = soa_nsd_read;
-		zone->soa_disk = soa_disk_read;
+		zone->soa_xfr = soa_disk_read;
 		zone->soa_notified = soa_notified_read;
 		zone->soa_nsd_acquired = soa_nsd_acquired_read;
 		/* we had better use what we got from starting NSD, not
@@ -501,8 +501,8 @@ xfrd_write_state(struct xfrd_state* xfrd)
 		fprintf(out, "\tbackoff: %d\n", zone->fresh_xfr_timeout/XFRD_TRANSFER_TIMEOUT_START);
 		xfrd_write_state_soa(out, "soa_nsd", &zone->soa_nsd,
 			zone->soa_nsd_acquired, zone->apex);
-		xfrd_write_state_soa(out, "soa_disk", &zone->soa_disk,
-			zone->soa_disk_acquired, zone->apex);
+		xfrd_write_state_soa(out, "soa_disk", &zone->soa_xfr,
+			zone->soa_xfr_acquired, zone->apex);
 		xfrd_write_state_soa(out, "soa_notify", &zone->soa_notified,
 			zone->soa_notified_acquired, zone->apex);
 		fprintf(out, "\n");

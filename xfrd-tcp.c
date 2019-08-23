@@ -601,7 +601,7 @@ xfrd_tcp_setup_write_packet(struct xfrd_tcp_pipeline* tp, xfrd_zone_type* zone)
 	/* start AXFR or IXFR for the zone */
 	if(zone->master->use_axfr_only || zone->master->ixfr_disabled ||
 		(zone->state == xfrd_zone_expired && zone->round_num != 0) ||
-		(zone->soa_disk_acquired == 0 && zone->soa_nsd_acquired == 0))
+		(zone->soa_xfr_acquired == 0 && zone->soa_nsd_acquired == 0))
 	{
 		/* if zone expired, after the first round, do not ask for
 		 * IXFR any more, but full AXFR (of any serial number) */
@@ -612,13 +612,11 @@ xfrd_tcp_setup_write_packet(struct xfrd_tcp_pipeline* tp, xfrd_zone_type* zone)
 		xfrd_setup_packet(tcp->packet, TYPE_AXFR, CLASS_IN, zone->apex,
 			zone->query_id);
 	} else {
-		xfrd_soa_type *soa = &zone->soa_notified;
-		if(zone->soa_notified_acquired == 0) {
-			if(zone->soa_disk_acquired != 0) {
-				soa = &zone->soa_disk;
-			} else if(zone->soa_nsd_acquired != 0) {
-				soa = &zone->soa_nsd;
-			}
+		xfrd_soa_type *soa;
+		if(zone->soa_xfr_acquired != 0) {
+			soa = &zone->soa_xfr;
+		} else {
+			soa = &zone->soa_nsd;
 		}
 
 		DEBUG(DEBUG_XFRD,1, (LOG_INFO, "request incremental zone "

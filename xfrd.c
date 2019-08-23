@@ -490,15 +490,15 @@ xfrd_init_slave_zone(xfrd_state_type* xfrd, struct zone_options* zone_opt)
 	xzone->fresh_xfr_timeout = XFRD_TRANSFER_TIMEOUT_START;
 
 	xzone->soa_nsd_acquired = 0;
-	xzone->soa_disk_acquired = 0;
+	xzone->soa_xfr_acquired = 0;
 	xzone->soa_notified_acquired = 0;
 	/* [0]=1, [1]=0; "." domain name */
 	xzone->soa_nsd.prim_ns[0] = 1;
 	xzone->soa_nsd.email[0] = 1;
-	xzone->soa_disk.prim_ns[0]=1;
-	xzone->soa_disk.email[0]=1;
-	xzone->soa_notified.prim_ns[0]=1;
-	xzone->soa_notified.email[0]=1;
+	xzone->soa_xfr.prim_ns[0] = 1;
+	xzone->soa_xfr.email[0] = 1;
+	xzone->soa_notified.prim_ns[0] = 1;
+	xzone->soa_notified.email[0] = 1;
 
 	xzone->zone_handler.ev_fd = -1;
 	xzone->zone_handler_flags = 0;
@@ -783,22 +783,22 @@ xfrd_set_timer_refresh(xfrd_zone_type* zone)
 	time_t set_expire;
 	time_t set_min;
 	time_t set;
-	if(zone->soa_disk_acquired == 0 || zone->state != xfrd_zone_ok) {
+	if(zone->soa_nsd_acquired == 0 || zone->state != xfrd_zone_ok) {
 		xfrd_set_timer_retry(zone);
 		return;
 	}
 	/* refresh or expire timeout, whichever is earlier */
-	set_refresh = ntohl(zone->soa_disk.refresh);
+	set_refresh = ntohl(zone->soa_nsd.refresh);
 	if (set_refresh > (time_t)zone->zone_options->pattern->max_refresh_time)
 		set_refresh = zone->zone_options->pattern->max_refresh_time;
 	else if (set_refresh < (time_t)zone->zone_options->pattern->min_refresh_time)
 		set_refresh = zone->zone_options->pattern->min_refresh_time;
-	set_refresh += zone->soa_disk_acquired;
-	set_expire = zone->soa_disk_acquired + ntohl(zone->soa_disk.expire);
+	set_refresh += zone->soa_nsd_acquired;
+	set_expire = zone->soa_nsd_acquired + ntohl(zone->soa_nsd.expire);
 	if(set_refresh < set_expire)
 		set = set_refresh;
 	else set = set_expire;
-	set_min = zone->soa_disk_acquired + XFRD_LOWERBOUND_REFRESH;
+	set_min = zone->soa_nsd_acquired + XFRD_LOWERBOUND_REFRESH;
 	if(set < set_min)
 		set = set_min;
 	if(set < xfrd_time())
@@ -827,7 +827,7 @@ xfrd_set_timer_retry(xfrd_zone_type* zone)
 	if(mult == 0) mult = 1;
 
 	/* set timer for next retry or expire timeout if earlier. */
-	if(zone->soa_disk_acquired == 0) {
+	if(zone->soa_nsd_acquired == 0) {
 		/* if no information, use reasonable timeout */
 #ifdef HAVE_ARC4RANDOM_UNIFORM
 		xfrd_set_timer(zone, zone->fresh_xfr_timeout
@@ -840,11 +840,10 @@ xfrd_set_timer_retry(xfrd_zone_type* zone)
 			+ random()%zone->fresh_xfr_timeout);
 #endif
 	} else if(zone->state == xfrd_zone_expired ||
-		xfrd_time() + (time_t)ntohl(zone->soa_disk.retry)*mult <
-		zone->soa_disk_acquired + (time_t)ntohl(zone->soa_disk.expire))
+		xfrd_time() + (time_t)ntohl(zone->soa_nsd.retry)*mult <
+		zone->soa_nsd_acquired + (time_t)ntohl(zone->soa_nsd.expire))
 	{
-		set_retry = ntohl(zone->soa_disk.retry);
-		set_retry *= mult;
+		set_retry = ntohl(zone->soa_nsd.retry) * mult;
 		if(set_retry > (time_t)zone->zone_options->pattern->max_retry_time)
 			set_retry = zone->zone_options->pattern->max_retry_time;
 		else if(set_retry < (time_t)zone->zone_options->pattern->min_retry_time)
@@ -853,13 +852,13 @@ xfrd_set_timer_retry(xfrd_zone_type* zone)
 			set_retry = XFRD_LOWERBOUND_RETRY;
 		xfrd_set_timer(zone, set_retry);
 	} else {
-		set_retry = ntohl(zone->soa_disk.expire);
-		if(set_retry < XFRD_LOWERBOUND_RETRY)
+		set_retry = ntohl(zone->soa_nsd.expire);
+		if(set_retry < XFRD_LOWERBOUND_RETRY) {
 			xfrd_set_timer(zone, XFRD_LOWERBOUND_RETRY);
-		else {
-			if(zone->soa_disk_acquired + set_retry < xfrd_time())
+		} else {
+			if(zone->soa_nsd_acquired + set_retry < xfrd_time())
 				xfrd_set_timer(zone, XFRD_LOWERBOUND_RETRY);
-			else xfrd_set_timer(zone, zone->soa_disk_acquired +
+			else xfrd_set_timer(zone, zone->soa_nsd_acquired +
 				set_retry - xfrd_time());
 		}
 	}
@@ -908,15 +907,8 @@ xfrd_handle_zone(int ATTR_UNUSED(fd), short event, void* arg)
 		return;
 	}
 
-	if(zone->soa_disk_acquired || zone->soa_nsd_acquired) {
-		xfrd_soa_type *soa;
+	if(zone->soa_nsd_acquired) {
 		time_t elapsed = xfrd_time() - zone->soa_nsd_acquired;
-
-		if(zone->soa_disk_acquired) {
-			soa = &zone->soa_disk;
-		} else {
-			soa = &zone->soa_nsd;
-		}
 
 		if(zone->state != xfrd_zone_expired &&
 		   elapsed >= (time_t)ntohl(zone->soa_nsd.expire))
@@ -1021,7 +1013,7 @@ xfrd_make_request(xfrd_zone_type* zone)
 		zone->apex_str, zone->round_num, zone->master_num, zone->next_master));
 	/* perform xfr request */
 	if (!zone->master->use_axfr_only && !zone->master->ixfr_disabled &&
-		(zone->soa_nsd_acquired > 0 || zone->soa_disk_acquired > 0))
+		(zone->soa_nsd_acquired > 0 || zone->soa_xfr_acquired > 0))
 	{
 		if (zone->master->allow_udp) {
 			xfrd_set_timer(zone, XFRD_UDP_TIMEOUT);
@@ -1033,7 +1025,7 @@ xfrd_make_request(xfrd_zone_type* zone)
 		}
 	}
 	else if (zone->master->use_axfr_only ||
-		(zone->soa_nsd_acquired <= 0 && zone->soa_disk_acquired <= 0))
+		(zone->soa_nsd_acquired <= 0 && zone->soa_xfr_acquired <= 0))
 	{
 		xfrd_set_timer(zone, xfrd->tcp_set->tcp_timeout);
 		xfrd_tcp_obtain(xfrd->tcp_set, zone);
@@ -1617,15 +1609,10 @@ xfrd_send_ixfr_request_udp(xfrd_zone_type* zone)
 	DEBUG(DEBUG_XFRD,1, (LOG_INFO, "sent query with ID %d", zone->query_id));
         NSCOUNT_SET(xfrd->packet, 1);
 
-	/* request ixfr based on soa_notified by default. fall back to
-	   soa_disk (newest) or soa_nsd. i.e. continue from newest */
-	soa = &zone->soa_notified;
-	if(zone->soa_notified_acquired == 0) {
-		if(zone->soa_disk_acquired != 0) {
-			soa = &zone->soa_disk;
-		} else if(zone->soa_nsd_acquired != 0) {
-			soa = &zone->soa_nsd;
-		}
+	if(zone->soa_xfr_acquired != 0) {
+		soa = &zone->soa_xfr;
+	} else if(zone->soa_nsd_acquired != 0) {
+		soa = &zone->soa_nsd;
 	}
 
 	xfrd_write_soa_buffer(xfrd->packet, zone->apex, soa);
@@ -1642,7 +1629,7 @@ xfrd_send_ixfr_request_udp(xfrd_zone_type* zone)
 
 	DEBUG(DEBUG_XFRD,1, (LOG_INFO,
 		"xfrd sent udp request for ixfr=%u for zone %s to %s",
-		(unsigned)ntohl(zone->soa_notified.serial),
+		(unsigned)ntohl(soa->serial),
 		zone->apex_str, zone->master->ip_address_spec));
 	return fd;
 }
@@ -1746,15 +1733,15 @@ xfrd_xfr_check_rrs(xfrd_zone_type* zone, buffer_type* packet, size_t count,
 			{
 				/* 2nd RR is SOA with lower serial, this is an IXFR */
 				zone->latest_xfr->msg_is_ixfr = 1;
-				if(zone->soa_disk_acquired == 0 &&
+				if(zone->soa_xfr_acquired == 0 &&
 				   zone->soa_nsd_acquired == 0)
 				{
 					DEBUG(DEBUG_XFRD,1, (LOG_ERR, "xfrd: zone %s xfr "
 						"got ixfr but need axfr", zone->apex_str));
 					return 0; /* got IXFR but need AXFR */
 				}
-				if((zone->soa_disk_acquired != 0 &&
-					ntohl(soa->serial) != ntohl(zone->soa_disk.serial)) ||
+				if((zone->soa_xfr_acquired != 0 &&
+					ntohl(soa->serial) != ntohl(zone->soa_xfr.serial)) ||
 				   (zone->soa_nsd_acquired != 0 &&
 					ntohl(soa->serial) != ntohl(zone->soa_nsd.serial)))
 				{
@@ -1942,8 +1929,20 @@ xfrd_parse_received_xfr_packet(xfrd_zone_type* zone, buffer_type* packet,
 
 	tempregion = region_create(xalloc, free);
 	if(zone->latest_xfr->msg_rr_count == 0) {
+		time_t *last_soa_acquired;
+		xfrd_soa_type *last_soa;
+
 		const dname_type* soaname = dname_make_from_packet(tempregion,
 			packet, 1, 1);
+
+		if(zone->soa_xfr_acquired > 0) {
+			last_soa_acquired = &zone->soa_xfr_acquired;
+			last_soa = &zone->soa_xfr;
+		} else {
+			last_soa_acquired = &zone->soa_nsd_acquired;
+			last_soa = &zone->soa_nsd;
+		}
+
 		if(!soaname) { /* parse failure */
 			DEBUG(DEBUG_XFRD,1, (LOG_ERR, "xfrd: zone %s, from %s: "
 				"parse error in SOA record",
@@ -1968,9 +1967,13 @@ xfrd_parse_received_xfr_packet(xfrd_zone_type* zone, buffer_type* packet,
 			region_destroy(tempregion);
 			return xfrd_packet_bad;
 		}
-		if(zone->soa_disk_acquired != 0 &&
-			zone->state != xfrd_zone_expired /* if expired - accept anything */ &&
-			compare_serial(ntohl(soa->serial), ntohl(zone->soa_disk.serial)) < 0) {
+
+		if(zone->state == xfrd_zone_expired || *last_soa_acquired <= 0)
+		{
+			/* accept anything if expired */ ;
+		} else if(compare_serial(ntohl(soa->serial),
+		                         ntohl(last_soa->serial)) < 0)
+		{
 			DEBUG(DEBUG_XFRD,1, (LOG_INFO,
 				"xfrd: zone %s ignoring old serial from %s",
 				zone->apex_str, zone->master->ip_address_spec));
@@ -1979,25 +1982,14 @@ xfrd_parse_received_xfr_packet(xfrd_zone_type* zone, buffer_type* packet,
 				zone->apex_str, zone->master->ip_address_spec));
 			region_destroy(tempregion);
 			return xfrd_packet_bad;
-		}
-		if((zone->soa_disk_acquired != 0 &&
-			zone->soa_disk.serial == soa->serial) ||
-		   (zone->soa_nsd_acquired != 0 &&
-			zone->soa_nsd.serial == soa->serial))
+		} else if(compare_serial(ntohl(soa->serial),
+		                         ntohl(last_soa->serial)) == 0)
 		{
-			time_t now = xfrd_time();
-			DEBUG(DEBUG_XFRD,1, (LOG_INFO, "xfrd: zone %s got "
-						       "update indicating "
-						       "current serial",
+			DEBUG(DEBUG_XFRD,1, (LOG_INFO,
+				"xfrd: zone %s got update indicating current serial",
 				zone->apex_str));
 			/* (even if notified) the lease on the current soa is renewed */
-			if(zone->soa_disk.serial == soa->serial) {
-				assert(zone->soa_nsd.serial != soa->serial);
-				zone->soa_disk_acquired = now;
-			}
-			if(zone->soa_nsd.serial == soa->serial) {
-				zone->soa_nsd_acquired = now;
-			}
+			*last_soa_acquired = xfrd_time();
 			/* FIXME: zone state should not be updated here(?) */
 			xfrd_set_zone_state(zone, xfrd_zone_ok);
  			DEBUG(DEBUG_XFRD,1, (LOG_INFO, "xfrd: zone %s is ok",
@@ -2018,8 +2010,10 @@ xfrd_parse_received_xfr_packet(xfrd_zone_type* zone, buffer_type* packet,
 			region_destroy(tempregion);
 			return xfrd_packet_drop;
 		}
-		DEBUG(DEBUG_XFRD,1, (LOG_INFO, "IXFR reply has ok serial (have \
-%u, reply %u).", (unsigned)ntohl(zone->soa_disk.serial), (unsigned)ntohl(soa->serial)));
+		DEBUG(DEBUG_XFRD,1, (LOG_INFO,
+			"IXFR reply has ok serial (have %u, reply %u).",
+			(unsigned)ntohl(last_soa->serial),
+			(unsigned)ntohl(soa->serial)));
 		/* serial is newer than soa_disk */
 		if(ancount == 1) {
 			/* single record means it is like a notify */
@@ -2033,9 +2027,11 @@ xfrd_parse_received_xfr_packet(xfrd_zone_type* zone, buffer_type* packet,
 		zone->latest_xfr->msg_new_serial = ntohl(soa->serial);
 		zone->latest_xfr->msg_rr_count = 1;
 		zone->latest_xfr->msg_is_ixfr = 0;
-		if(zone->soa_disk_acquired)
-			zone->latest_xfr->msg_old_serial = ntohl(zone->soa_disk.serial);
-		else zone->latest_xfr->msg_old_serial = 0;
+		if(*last_soa_acquired >= 0) {
+			zone->latest_xfr->msg_old_serial = ntohl(last_soa->serial);
+		} else {
+			zone->latest_xfr->msg_old_serial = 0;
+		}
 		ancount_todo = ancount - 1;
 	}
 
@@ -2280,13 +2276,13 @@ xfrd_handle_received_xfr_packet(xfrd_zone_type* zone, buffer_type* packet)
 		zone->apex_str, (char*)buffer_begin(packet)));
 	/* reset msg seq nr, so if that is nonnull we know xfr file exists */
 	zone->latest_xfr->msg_seq_nr = 0;
-	/* update the disk serial no. */
-	zone->soa_disk = zone->latest_xfr->soa = soa;
-	zone->soa_disk_acquired = zone->latest_xfr->acquired = xfrd_time();
+	/* update latest transfer serial no. */
+	zone->soa_xfr = zone->latest_xfr->soa = soa;
+	zone->soa_xfr_acquired = zone->latest_xfr->acquired = xfrd_time();
 	/* transfers are put on the tasklist from xfrd_schedule_xfrs */
 	if((zone->soa_notified_acquired) &&
-	   (compare_serial(htonl(zone->soa_disk.serial),
-		           htonl(zone->soa_notified.serial)) >= 0))
+	   (compare_serial(ntohl(zone->soa_xfr.serial),
+		           ntohl(zone->soa_notified.serial)) >= 0))
 	{
 		zone->soa_notified_acquired = 0;
 	}
@@ -2376,7 +2372,7 @@ xfrd_handle_notify_and_start_xfr(xfrd_zone_type* zone, xfrd_soa_type* soa)
 		/* zones with no content start expbackoff again; this is also
 		 * for nsd-control started transfer commands, and also when
 		 * the master apparently sends notifies (is back up) */
-		if(zone->soa_disk_acquired == 0)
+		if(zone->soa_nsd_acquired == 0)
 			zone->fresh_xfr_timeout = XFRD_TRANSFER_TIMEOUT_START;
 	}
 }
@@ -2444,23 +2440,33 @@ xfrd_handle_passed_packet(buffer_type* packet,
 static int
 xfrd_handle_incoming_notify(xfrd_zone_type* zone, xfrd_soa_type* soa)
 {
-	if(soa && zone->soa_disk_acquired && zone->state != xfrd_zone_expired &&
-	   compare_serial(ntohl(soa->serial),ntohl(zone->soa_disk.serial)) <= 0)
+	time_t last_soa_acquired;
+	xfrd_soa_type *last_soa;
+
+	if(zone->soa_xfr_acquired > 0) {
+		last_soa_acquired = zone->soa_xfr_acquired;
+		last_soa = &zone->soa_xfr;
+	} else {
+		last_soa_acquired = zone->soa_nsd_acquired;
+		last_soa = &zone->soa_nsd;
+	}
+
+	if(soa == NULL) {
+		zone->soa_notified.serial = 0;
+	} else if(last_soa_acquired > 0 && zone->state != xfrd_zone_expired &&
+	          compare_serial(ntohl(soa->serial),
+	                         ntohl(last_soa->serial)) <= 0)
 	{
 		DEBUG(DEBUG_XFRD,1, (LOG_INFO,
 			"xfrd: ignored notify %s %u old serial, zone valid "
 			"(soa disk serial %u)", zone->apex_str,
 			(unsigned)ntohl(soa->serial),
-			(unsigned)ntohl(zone->soa_disk.serial)));
+			(unsigned)ntohl(last_soa->serial)));
 		return 0; /* ignore notify with old serial, we have a valid zone */
-	}
-	if(soa == 0) {
-		zone->soa_notified.serial = 0;
-	}
-	else if (zone->soa_notified_acquired == 0 ||
-		 zone->soa_notified.serial == 0 ||
-		 compare_serial(ntohl(soa->serial),
-			ntohl(zone->soa_notified.serial)) > 0)
+	} else if(zone->soa_notified_acquired == 0 ||
+	          zone->soa_notified.serial   == 0 ||
+	          compare_serial(ntohl(soa->serial),
+	                         ntohl(zone->soa_notified.serial)) > 0)
 	{
 		zone->soa_notified = *soa;
 	}
@@ -2536,7 +2542,7 @@ xfrd_process_xfrs(int committed)
 
 		elapsed = xfrd_time() - zone->soa_nsd_acquired;
 		if(zone->soa_nsd_acquired == 0 ||
-		   zone->soa_notified_acquired > zone->soa_disk_acquired)
+		   zone->soa_notified_acquired > zone->soa_xfr_acquired)
 		{
 			/* NSD does not have any zone data, or a notify was
 			   received. force refresh */
@@ -2546,7 +2552,7 @@ xfrd_process_xfrs(int committed)
 			xfrd_set_zone_state(zone, xfrd_zone_ok);
 			zone->round_num = -1;
 			xfrd_set_timer_refresh(zone);
-		} else if(zone->latest_xfr == NULL) {
+		} else if(zone->latest_xfr == NULL) { // FIXME: >>>>> this needs some work... checking for the wrong criteria
 			/* zone must be refreshed or even expired already.
 			   refresh zone if no transfers are in progress */
 			if(elapsed >= (time_t)ntohl(zone->soa_nsd.expire)) {
@@ -2687,8 +2693,8 @@ xfrd_process_zone_xfrs(xfrd_zone_type *zone, int committed)
 		if((!zone->latest_xfr) ||
 		   (!zone->latest_xfr->prev && !zone->latest_xfr->acquired))
 		{
-			zone->soa_disk_acquired = 0;
-			memset(&zone->soa_disk, 0, sizeof(xfrd_soa_type));
+			zone->soa_xfr_acquired = 0;
+			memset(&zone->soa_xfr, 0, sizeof(xfrd_soa_type));
 		}
 		if(committed) {
 			xfrd_schedule_zone_xfrs(
@@ -2709,8 +2715,8 @@ xfrd_process_zone_xfrs(xfrd_zone_type *zone, int committed)
 		if((!zone->latest_xfr) ||
 		   (!zone->latest_xfr->prev && !zone->latest_xfr->acquired))
 		{
-			zone->soa_disk_acquired = 0;
-			memset(&zone->soa_disk, 0, sizeof(xfrd_soa_type));
+			zone->soa_xfr_acquired = 0;
+			memset(&zone->soa_xfr, 0, sizeof(xfrd_soa_type));
 		}
 		xfrd_schedule_zone_xfrs(zone, xfr, committed);
 		return; /* continue */
@@ -2718,8 +2724,8 @@ xfrd_process_zone_xfrs(xfrd_zone_type *zone, int committed)
 		assert(xfr->state == xfrd_xfr_ok ||
 		       xfr->state == xfrd_xfr_new);
 		if(xfr == zone->latest_xfr) {
-			zone->soa_disk_acquired = xfr->acquired;
-			zone->soa_disk = xfr->soa;
+			zone->soa_xfr_acquired = xfr->acquired;
+			zone->soa_xfr = xfr->soa;
 		}
 		xfrd_schedule_zone_xfrs(zone, xfr, committed);
 		return; /* nothing to update yet, continue */
@@ -2748,8 +2754,8 @@ xfrd_process_zone_xfrs(xfrd_zone_type *zone, int committed)
 	if((!zone->latest_xfr) ||
 	   (!zone->latest_xfr->prev || !zone->latest_xfr->acquired))
 	{
-		zone->soa_disk_acquired = 0;
-		memset(&zone->soa_disk, 0, sizeof(xfrd_soa_type));
+		zone->soa_xfr_acquired = 0;
+		memset(&zone->soa_xfr, 0, sizeof(xfrd_soa_type));
 	}
 
 	xfrd_schedule_zone_xfrs(zone, zone->latest_xfr, committed);
