@@ -112,7 +112,8 @@ diff_write_commit_status(const char* zone, struct nsd* nsd,
 	assert(nsd != NULL);
 	assert(commit == DIFF_NOT_COMMITTED ||
 	       commit == DIFF_COMMITTED ||
-	       commit == DIFF_DISCARDED);
+	       commit == DIFF_CORRUPT ||
+	       commit == DIFF_INCONSISTENT);
 
 	df = xfrd_open_xfrfile(nsd, filenumber, "r+");
 	if(!df) {
@@ -1343,13 +1344,19 @@ apply_ixfr_for_zone(nsd_type* nsd, zone_type* zonedb, FILE* in,
 			zone_buf, domain_to_string(zonedb->apex));
 		return xfrd_xfr_corrupt;
 	}
-	if(committed == DIFF_NOT_COMMITTED) {
+	switch(committed) {
+	case DIFF_NOT_COMMITTED:
 		log_msg(LOG_ERR, "diff file %s was not committed", zone_buf);
 		return xfrd_xfr_corrupt;
-	}
-	if(committed == DIFF_DISCARDED) {
-		log_msg(LOG_ERR, "diff file %s was discarded", zone_buf);
+	case DIFF_CORRUPT:
+		log_msg(LOG_ERR, "diff file %s was corrupt", zone_buf);
 		return xfrd_xfr_corrupt;
+	case DIFF_INCONSISTENT:
+		log_msg(LOG_ERR, "diff file %s was inconsistent", zone_buf);
+		return xfrd_xfr_inconsistent;
+	default:
+		assert(committed == DIFF_COMMITTED);
+		break;
 	}
 	if(num_parts == 0) {
 		log_msg(LOG_ERR, "diff file %s was not completed", zone_buf);
@@ -1361,15 +1368,13 @@ apply_ixfr_for_zone(nsd_type* nsd, zone_type* zonedb, FILE* in,
 		return xfrd_xfr_corrupt;
 	}
 
-	assert(committed == DIFF_COMMITTED);
-
 	DEBUG(DEBUG_XFRD,1, (LOG_INFO, "processing xfr: %s", zone_buf));
 	memset(&z, 0, sizeof(z)); /* if udb==NULL, have &z defined */
 	if(nsd->db->udb) {
 		if(udb_base_get_userflags(nsd->db->udb) != 0) {
 			log_msg(LOG_ERR, "database corrupted, cannot update");
 			diff_write_commit_status(
-				zone_buf, nsd, DIFF_DISCARDED, xfrfilenr);
+				zone_buf, nsd, DIFF_CORRUPT, xfrfilenr);
 			exit(1);
 		}
 		/* all parts were checked by xfrd before commit */
@@ -1399,7 +1404,7 @@ apply_ixfr_for_zone(nsd_type* nsd, zone_type* zonedb, FILE* in,
 		if(ret == 0) {
 			log_msg(LOG_ERR, "bad ixfr packet part %d in diff file for %s", (int)i, zone_buf);
 			diff_write_commit_status(
-				zone_buf, nsd, DIFF_DISCARDED, xfrfilenr);
+				zone_buf, nsd, DIFF_CORRUPT, xfrfilenr);
 			/* the udb is still dirty, it is bad */
 			exit(1);
 		} else if(ret == 2) {
@@ -1444,7 +1449,9 @@ apply_ixfr_for_zone(nsd_type* nsd, zone_type* zonedb, FILE* in,
 			"Zone %s contents is different from master, "
 			"starting AXFR. Transfer %s", zone_buf, log_buf);
 		/* add/del failures in IXFR, get an AXFR */
-		return xfrd_xfr_corrupt;
+		diff_write_commit_status(
+			zone_buf, nsd, DIFF_INCONSISTENT, xfrfilenr);
+		exit(1);
 	} else if(taskudb) {
 		return xfrd_xfr_ok;
 	}
@@ -1508,7 +1515,9 @@ void task_new_soainfo(
 		domain_to_string(z->apex)));
 	apex = domain_dname(z->apex);
 	sz = sizeof(struct task_list_d) + dname_total_size(apex);
-	if(z->soa_rrset && state != xfrd_xfr_corrupt) {
+	if(z->soa_rrset && state != xfrd_xfr_corrupt &&
+	                   state != xfrd_xfr_inconsistent)
+	{
 		ns = domain_dname(rdata_atom_domain(
 			z->soa_rrset->rrs[0].rdatas[0]));
 		em = domain_dname(rdata_atom_domain(
@@ -1532,7 +1541,9 @@ void task_new_soainfo(
 	TASKLIST(&e)->task_type = task_soa_info;
 	TASKLIST(&e)->yesno = (uint64_t)state;
 
-	if(z->soa_rrset && state != xfrd_xfr_corrupt) {
+	if(z->soa_rrset && state != xfrd_xfr_corrupt &&
+	                   state != xfrd_xfr_inconsistent)
+	{
 		uint32_t ttl = htonl(z->soa_rrset->rrs[0].ttl);
 		uint8_t* p = (uint8_t*)TASKLIST(&e)->zname;
 		p += dname_total_size(apex);
@@ -2072,10 +2083,12 @@ task_process_apply_xfr(struct nsd* nsd, udb_base* udb, udb_ptr *last_task,
 		nsd, zone, df, udb, last_task, TASKLIST(task)->yesno);
 	switch(state) {
 	case xfrd_xfr_corrupt:
+	case xfrd_xfr_inconsistent:
 		diff_write_commit_status(
 			dname_to_string(TASKLIST(task)->zname, NULL),
 			nsd,
-			DIFF_DISCARDED,
+			state == xfrd_xfr_corrupt ? DIFF_CORRUPT :
+			                            DIFF_INCONSISTENT,
 			TASKLIST(task)->yesno);
 		task_new_soainfo(
 			udb, last_task, zone, TASKLIST(task)->newserial, state);

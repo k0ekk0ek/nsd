@@ -20,9 +20,10 @@ struct nsdst;
 #define DIFF_PART_XXFR ('X'<<24 | 'X'<<16 | 'F'<<8 | 'R')
 #define DIFF_PART_XFRF ('X'<<24 | 'F'<<16 | 'R'<<8 | 'F')
 
-#define DIFF_NOT_COMMITTED (0u) /* XFR not yet committed to disk. */
-#define DIFF_COMMITTED (1u<<0) /* XFR committed to disk. */
-#define DIFF_DISCARDED (1u<<1) /* XFR failed to apply or verification. */
+#define DIFF_NOT_COMMITTED (0u) /* XFR not (yet) committed to disk */
+#define DIFF_COMMITTED (1u<<0) /* XFR committed to disk */
+#define DIFF_CORRUPT (1u<<1) /* XFR corrupt */
+#define DIFF_INCONSISTENT (1u<<2) /* IXFR cannot be applied */
 
 /* write an xfr packet data to the diff file, type=IXFR.
    The diff file is created if necessary, with initial header(notcommitted). */

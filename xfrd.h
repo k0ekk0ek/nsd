@@ -227,8 +227,9 @@ struct xfrd_zone {
 enum xfrd_xfr_state {
 	xfrd_xfr_new = 0,
 	xfrd_xfr_corrupt = (1<<0),
-	xfrd_xfr_ok = (1<<1),
-	xfrd_xfr_drop = (1<<2)
+	xfrd_xfr_inconsistent = (1<<1),
+	xfrd_xfr_ok = (1<<2),
+	xfrd_xfr_drop = (1<<3)
 };
 
 /*

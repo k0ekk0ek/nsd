@@ -552,6 +552,7 @@ static void
 xfrd_process_soa_info_task(struct task_list_d* task)
 {
 	xfrd_soa_type soa;
+	xfrd_soa_type *soa_ptr = &soa;
 	xfrd_zone_type* zone;
 	size_t soa_info_min_size;
 	DEBUG(DEBUG_IPC,1, (LOG_INFO, "xfrd: process SOAINFO %s",
@@ -563,7 +564,6 @@ xfrd_process_soa_info_task(struct task_list_d* task)
 	                    sizeof(uint32_t) * 6 +
 	                    sizeof(uint8_t) * 2;
 
-	memset(&soa, 0, sizeof(soa));
 	if(task->size <= soa_info_min_size) {
 		const char *state;
 		if(task->yesno == xfrd_xfr_drop) {
@@ -574,11 +574,12 @@ xfrd_process_soa_info_task(struct task_list_d* task)
 		/* NSD has zone without any info */
 		DEBUG(DEBUG_IPC,1, (LOG_INFO, "SOAINFO for %s %s",
 			dname_to_string(task->zname,0), state));
-		soa.serial = ntohl(task->newserial);
+		soa_ptr = NULL;
 	} else {
 		uint8_t* p = (uint8_t*)task->zname + dname_total_size(
 			task->zname);
 		/* read the soa info */
+		memset(&soa, 0, sizeof(soa));
 		/* left out type, klass, count for speed */
 		soa.type = htons(TYPE_SOA);
 		soa.klass = htons(CLASS_IN);
@@ -616,7 +617,7 @@ xfrd_process_soa_info_task(struct task_list_d* task)
 		return;
 	}
 	xfrd_handle_incoming_soa(
-		zone, &soa, task->newserial, xfrd_time(), task->yesno);
+		zone, soa_ptr, htonl(task->newserial), xfrd_time(), task->yesno);
 }
 
 static void
@@ -1231,7 +1232,8 @@ xfrd_handle_incoming_soa(
 		}
 
 		assert(serial != 0);
-		assert(state == xfrd_xfr_corrupt);
+		assert(state == xfrd_xfr_corrupt ||
+		       state == xfrd_xfr_inconsistent);
 		while(xfr && 0 != compare_serial(ntohl(xfr->soa.serial),
 		                                 ntohl(serial)))
 		{
@@ -1239,7 +1241,7 @@ xfrd_handle_incoming_soa(
 		}
 		assert(xfr != NULL);
 		assert(xfr->acquired <= xfrd->reload_cmd_first_sent);
-		xfr->state = xfrd_xfr_corrupt;
+		xfr->state = state;
 
 		/* whether or not a zone needs a refresh is determined when all
 		   incoming soas have been processed */
@@ -2658,21 +2660,23 @@ xfrd_process_zone_xfrs(xfrd_zone_type *zone, int committed)
 	/* if the state of the most recent transfer is "corrupt", any
 	   incremental transfer that follows must be discarded and the zone
 	   must be refreshed, unless of course a full transfer is already
-	   awaiting scheduling. */
-	if(xfr->state == xfrd_xfr_corrupt) {
+	   awaiting scheduling */
+	if(xfr->state == xfrd_xfr_corrupt ||
+	   xfr->state == xfrd_xfr_inconsistent)
+	{
 		next_xfr = xfr->next;
 		while(next_xfr) {
 			/* transfer must be complete to determine if it is
 			   incremental */
-			if(next_xfr->acquired && next_xfr->msg_is_ixfr) {
+			if(next_xfr->acquired > 0 && next_xfr->msg_is_ixfr) {
 				xfrd_discard_zone_xfr(zone, next_xfr);
 				next_xfr = xfr->next;
 			} else {
 				break;
 			}
 		}
-		/* refresh if no full transfers was awaiting scheduling */
-		if(!next_xfr) {
+		/* refresh if no full transfer was awaiting scheduling */
+		if(xfr->state == xfrd_xfr_inconsistent) {
 			/* reset soa_nsd_acquired to force a full transfer.
 			   a refresh will be scheduled upon return */
 			zone->soa_nsd_acquired = 0;
@@ -2681,14 +2685,16 @@ xfrd_process_zone_xfrs(xfrd_zone_type *zone, int committed)
 	}
 
 	/* discard any leading corrupt transfers. */
-	while(xfr && xfr->state == xfrd_xfr_corrupt) {
-		prev_xfr = xfr;
+	while(xfr && (xfr->state == xfrd_xfr_corrupt ||
+	              xfr->state == xfrd_xfr_inconsistent))
+	{
+		prev_xfr = xfr->prev;
 		xfrd_discard_zone_xfr(zone, xfr);
 		xfr = prev_xfr;
 	}
 
 	if(!xfr) {
-		/* reset soa_disk information if no transfers are acquired to
+		/* reset soa_xfr information if no transfers are acquired to
 		   decide if the zone needs a refresh */
 		if((!zone->latest_xfr) ||
 		   (!zone->latest_xfr->prev && !zone->latest_xfr->acquired))
