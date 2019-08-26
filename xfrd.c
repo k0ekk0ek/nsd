@@ -2542,12 +2542,12 @@ xfrd_process_xfrs(int committed)
 		//assert(zone->soa_disk_acquired &&
 		//       zone->soa_disk_acquired <= xfrd->reload_cmd_last_sent);
 
+		/* if soa_nsd_acquired was set to 0 (zero) to force a refresh,
+		   elapsed will be set to the current time, ensuring the
+		   refresh is triggered if no transfers are started/complete */
 		elapsed = xfrd_time() - zone->soa_nsd_acquired;
-		if(zone->soa_nsd_acquired == 0 ||
-		   zone->soa_notified_acquired > zone->soa_xfr_acquired)
-		{
-			/* NSD does not have any zone data, or a notify was
-			   received. force refresh */
+		if(zone->soa_notified_acquired > zone->soa_xfr_acquired) {
+			/* a notify was received, force refresh */
 			xfrd_set_zone_state(zone, xfrd_zone_refreshing);
 			xfrd_set_refresh_now(zone);
 		} else if(elapsed < (time_t)ntohl(zone->soa_nsd.refresh)) {
