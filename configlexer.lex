@@ -300,10 +300,11 @@ tls-service-ocsp{COLON}	{ LEXOUT(("v(%s) ", yytext)); return VAR_TLS_SERVICE_OCS
 tls-service-pem{COLON}	{ LEXOUT(("v(%s) ", yytext)); return VAR_TLS_SERVICE_PEM;}
 tls-port{COLON}		{ LEXOUT(("v(%s) ", yytext)); return VAR_TLS_PORT;}
 enable{COLON}		{ LEXOUT(("v(%s) ", yytext)); return VAR_ENABLE;}
+verify{COLON}		{ LEXOUT(("v(%s) ", yytext)); return VAR_VERIFY;}
 verifier-count{COLON}	{ LEXOUT(("v(%s) ", yytext)); return VAR_VERIFIER_COUNT;}
 verifier{COLON}		{ LEXOUT(("v(%s) ", yytext)); return VAR_VERIFIER;}
-verifier-feed-zone	{ LEXOUT(("v(%s) ", yytext)); return VAR_VERIFIER_FEED_ZONE;}
-verifier-timeout	{ LEXOUT(("v(%s) ", yytext)); return VAR_VERIFIER_TIMEOUT;}
+verifier-feed-zone{COLON}	{ LEXOUT(("v(%s) ", yytext)); return VAR_VERIFIER_FEED_ZONE;}
+verifier-timeout{COLON}	{ LEXOUT(("v(%s) ", yytext)); return VAR_VERIFIER_TIMEOUT;}
 {NEWLINE}		{ LEXOUT(("NL\n")); cfg_parser->line++;}
 
 	/* Quoted strings. Strip leading and ending quotes */

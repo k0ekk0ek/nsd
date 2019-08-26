@@ -240,9 +240,9 @@ server_option:
     { cfg_parser->opt->do_ip6 = $2; }
   | VAR_DATABASE STRING
     {
-      if(strlen($2) != 0) {
-        cfg_parser->opt->database = region_strdup(cfg_parser->opt->region, $2);
-      } else if(cfg_parser->opt->zonefiles_write == 0) {
+      cfg_parser->opt->database = region_strdup(cfg_parser->opt->region, $2);
+      if(cfg_parser->opt->database[0] == 0
+      && cfg_parser->opt->zonefiles_write == 0) {
         cfg_parser->opt->zonefiles_write = ZONEFILES_WRITE_INTERVAL;
       }
     }
