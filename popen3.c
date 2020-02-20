@@ -19,16 +19,15 @@ static void close_pipe(int fds[2])
 }
 
 pid_t popen3(char *const *command,
-             FILE **finptr,
-             FILE **foutptr,
-             FILE **ferrptr)
+             int *fdinptr,
+             int *fdoutptr,
+             int *fderrptr)
 {
 	int err = 0;
 	int fdin[] = { -1, -1 };
 	int fdout[] = { -1, -1 };
 	int fderr[] = { -1, -1 };
 	int fdsig[] = { -1, -1 };
-	FILE *fin, *fout, *ferr;
 	pid_t pid;
 	ssize_t discard;
 
@@ -37,21 +36,13 @@ pid_t popen3(char *const *command,
 		return -1;
 	}
 
-	fin = fout = ferr = NULL;
-
-	if(finptr != NULL && (pipe(fdin) == -1 ||
-			       (fin = fdopen(fdin[1], "w")) == NULL))
-	{
+	if(fdinptr != NULL && pipe(fdin) == -1)	{
 		goto error;
 	}
-	if(foutptr != NULL && (pipe(fdout) == -1 ||
-			        (fout = fdopen(fdout[0], "r")) == NULL))
-	{
+	if(fdoutptr != NULL && pipe(fdout) == -1) {
 		goto error;
 	}
-	if(ferrptr != NULL && (pipe(fderr) == -1 ||
-			        (ferr = fdopen(fderr[0], "r")) == NULL))
-	{
+	if(fderrptr != NULL && pipe(fderr) == -1) {
 		goto error;
 	}
 	if(pipe(fdsig) == -1 ||
@@ -66,7 +57,7 @@ pid_t popen3(char *const *command,
 	case -1: /* error */
 		goto error;
 	case 0: /* child */
-		if(ferrptr != NULL) {
+		if(fderrptr != NULL) {
 			if(dup2(fderr[1], 2) == -1) {
 				goto error_dup2;
 			}
@@ -74,7 +65,7 @@ pid_t popen3(char *const *command,
 		} else {
 			close(2);
 		}
-		if(foutptr != NULL) {
+		if(fdoutptr != NULL) {
 			if(dup2(fdout[1], 1) == -1) {
 				goto error_dup2;
 			}
@@ -82,7 +73,7 @@ pid_t popen3(char *const *command,
 		} else {
 			close(1);
 		}
-		if(finptr != NULL) {
+		if(fdinptr != NULL) {
 			if(dup2(fdin[0], 0) == -1) {
 				goto error_dup2;
 			}
@@ -130,36 +121,23 @@ error_dup2:
 		break;
 	}
 
-	if(finptr != NULL) {
+	if(fdinptr != NULL) {
 		close(fdin[0]);
-		*finptr = fin;
+		*fdinptr = fdin[1];
 	}
-	if(foutptr != NULL) {
+	if(fdoutptr != NULL) {
 		close(fdout[1]);
-		*foutptr = fout;
+		*fdoutptr = fdout[0];
 	}
-	if(ferrptr != NULL) {
+	if(fderrptr != NULL) {
 		close(fderr[1]);
-		*ferrptr = ferr;
+		*fderrptr = fderr[0];
 	}
 
 	return pid;
 
 error:
 	err = errno;
-
-	if(fin != NULL) {
-		fclose(fin);
-		fdin[1] = -1;
-	}
-	if(fout != NULL) {
-		fclose(fout);
-		fdout[0] = -1;
-	}
-	if(ferr != NULL) {
-		fclose(ferr);
-		fderr[0] = -1;
-	}
 
 	close_pipe(fdin);
 	close_pipe(fdout);

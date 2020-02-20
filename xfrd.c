@@ -1240,7 +1240,8 @@ xfrd_handle_incoming_soa(
 		return;
 	}
 
-	assert(state == xfrd_xfr_ok);
+	assert((state == xfrd_xfr_ok) ||
+	       (state == xfrd_xfr_invalid && xfrd->nsd->options->verify_enable));
 	/* soa information available, as such the information can be related
 	   to a specific zone transfer (the last zone transfer sent, since soa
 	   information is communicated after verification) and transfer state
@@ -2674,6 +2675,25 @@ xfrd_process_zone_xfrs(xfrd_zone_type *zone, int committed)
 			xfrd_schedule_zone_xfrs(
 				zone, zone->latest_xfr, committed);
 		}
+		return; /* continue */
+	} else if(xfr->state == xfrd_xfr_invalid) {
+		assert(!committed);
+		/* transfers that did not pass verification are discarded and
+		   second-to-last is rescheduled to ensure that the zone is as
+		   is as up-to-date as possible */
+		prev_xfr = xfr->prev;
+		xfrd_discard_zone_xfr(zone, xfr);
+		xfr = prev_xfr;
+		/* update soa_disk information to ensure the correct serial is
+		   communicated with the next incremental transfer, which is
+		   purposely not scheduled right away */
+		if((!zone->latest_xfr) ||
+		   (!zone->latest_xfr->prev && !zone->latest_xfr->acquired))
+		{
+			zone->soa_xfr_acquired = 0;
+			memset(&zone->soa_xfr, 0, sizeof(xfrd_soa_type));
+		}
+		xfrd_schedule_zone_xfrs(zone, xfr, committed);
 		return; /* continue */
 	} else if(!committed) {
 		assert(xfr->state == xfrd_xfr_ok ||
