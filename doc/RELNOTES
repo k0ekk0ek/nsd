@@ -3,6 +3,7 @@ NSD RELEASE NOTES
 4.4.1 (Upcoming)
 ================
 FEATURES:
+	- Port zone-verification from CreDNS to NSD4.
 BUG FIXES:
 	- Fix code analyzer zero divide warning.
 	- Fix code analyzer large value with assertion.
