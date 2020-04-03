@@ -12,6 +12,13 @@
 
 #include <signal.h>
 #include <net/if.h>
+#ifndef IFNAMSIZ
+#  ifdef IF_NAMESIZE
+#    define IFNAMSIZ IF_NAMESIZE
+#  else
+#    define IFNAMSIZ 16
+#  endif
+#endif
 #ifdef HAVE_OPENSSL_SSL_H
 #include <openssl/ssl.h>
 #endif

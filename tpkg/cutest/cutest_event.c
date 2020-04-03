@@ -74,6 +74,7 @@ static void
 agent(int fdin, int fdout, struct testvars *vars, void(*func)(struct proc *))
 {
 	char buf[32];
+	size_t i;
 	ssize_t cnt;
 	ssize_t discard;
 
@@ -81,7 +82,7 @@ agent(int fdin, int fdout, struct testvars *vars, void(*func)(struct proc *))
 	signal(SIGTERM, sigterm_handler);
 	discard = read(fdin, buf, sizeof(buf));
 	(void)discard;
-	for (size_t i = 0; i < NUM_CHILDREN; i++) {
+	for (i = 0; i < NUM_CHILDREN; i++) {
 		func(&vars->children[i]);
 	}
 	cnt = snprintf(buf, sizeof(buf), "%d\n", getpid());
@@ -134,7 +135,7 @@ static void
 sigchld_callback(int sig, short event, void *arg)
 {
 	pid_t pid;
-	int wstatus = 0;
+	int i, wstatus = 0;
 	struct testvars *vars = (struct testvars *)arg;
 	struct proc *proc;
 
@@ -150,7 +151,7 @@ sigchld_callback(int sig, short event, void *arg)
 			proc = &vars->agent;
 			if(verb) log_msg(LOG_INFO, "sigchld_callback: agent exited\n");
 		} else if(pid > 0) {
-			for(int i = 0; i < NUM_CHILDREN; i++) {
+			for(i = 0; i < NUM_CHILDREN; i++) {
 				if(vars->children[i].pid == pid) {
 					proc = &vars->children[i];
 					if(verb) log_msg(LOG_INFO, "sigchld_callback: child %d exited\n", (int)i);
@@ -172,7 +173,8 @@ sigchld_callback(int sig, short event, void *arg)
 static void
 fork_children(struct testvars *vars)
 {
-	for(int i = 0; i < NUM_CHILDREN; i++) {
+	int i;
+	for(i = 0; i < NUM_CHILDREN; i++) {
 		pid_t pid;
 		int ret, fdin[2], fdout[2];
 		ret = pipe(fdin);
@@ -237,7 +239,7 @@ fork_agent(struct testvars *vars, void(*func)(struct proc *))
 static void
 event_setup(struct testvars *vars)
 {
-	int ret;
+	int i, ret;
 
 	memset(vars, 0, sizeof(*vars));
 	vars->event_base = nsd_child_event_base();
@@ -248,7 +250,7 @@ event_setup(struct testvars *vars)
 	ret = signal_add(&vars->event_sigchld, NULL);
 	assert(ret == 0);
 
-	for(int i = 0; i < NUM_CHILDREN; i++) {
+	for(i = 0; i < NUM_CHILDREN; i++) {
 		vars->children[i].pid = -1;
 		vars->children[i].fdin = -1;
 		vars->children[i].fdout = -1;
@@ -259,6 +261,7 @@ event_setup(struct testvars *vars)
 static void
 event_teardown(struct testvars *vars)
 {
+	int i;
 	if(vars->agent.fdin != -1 &&
 	   vars->agent.event_added &&
 	   vars->agent.event.ev_fd == vars->agent.fdin)
@@ -266,7 +269,7 @@ event_teardown(struct testvars *vars)
 		event_del(&vars->agent.event);
 	}
 
-	for(int i = 0; i < NUM_CHILDREN; i++) {
+	for(i = 0; i < NUM_CHILDREN; i++) {
 		if(vars->children[i].fdin != -1 &&
 		   vars->children[i].event.ev_fd == vars->children[i].fdin)
 		{
@@ -304,7 +307,7 @@ kill_child(struct proc *proc)
 static void
 event_wait_for_children(CuTest *tc)
 {
-	int ret;
+	int i, ret;
 	struct testvars vars;
 
 	if(verb) log_msg(LOG_INFO, "event_wait_for_children start\n");
@@ -316,7 +319,7 @@ event_wait_for_children(CuTest *tc)
 
 	CuAssert(tc, "", ret != -1);
 
-	for(int i = 0; i < NUM_CHILDREN; i++) {
+	for(i = 0; i < NUM_CHILDREN; i++) {
 		CuAssert(tc, "", WIFEXITED(vars.children[i].wstatus));
 		CuAssert(tc, "", (vars.children[i].events & EV_SIGNAL));
 	}
@@ -328,7 +331,7 @@ event_wait_for_children(CuTest *tc)
 static void
 event_terminate_children(CuTest *tc)
 {
-	int ret;
+	int i, ret;
 	struct testvars vars;
 
 	if(verb) log_msg(LOG_INFO, "event_terminate_children start\n");
@@ -340,7 +343,7 @@ event_terminate_children(CuTest *tc)
 
 	CuAssert(tc, "", ret != -1);
 
-	for(int i = 0; i < NUM_CHILDREN; i++) {
+	for(i = 0; i < NUM_CHILDREN; i++) {
 		CuAssert(tc, "", !WIFEXITED(vars.children[i].wstatus));
 		CuAssert(tc, "", (vars.children[i].events & EV_SIGNAL));
 	}
@@ -352,7 +355,7 @@ event_terminate_children(CuTest *tc)
 static void
 event_kill_children(CuTest *tc)
 {
-	int ret;
+	int i, ret;
 	struct testvars vars;
 
 	if(verb) log_msg(LOG_INFO, "event_kill_children start\n");
@@ -364,7 +367,7 @@ event_kill_children(CuTest *tc)
 
 	CuAssert(tc, "", ret != -1);
 
-	for(int i = 0; i < NUM_CHILDREN; i++) {
+	for(i = 0; i < NUM_CHILDREN; i++) {
 		CuAssert(tc, "", !WIFEXITED(vars.children[i].wstatus));
 		CuAssert(tc, "", (vars.children[i].events & EV_SIGNAL));
 	}

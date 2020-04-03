@@ -306,16 +306,16 @@ int CuSuiteRunRegex(CuSuite* testSuite, const char *regex)
 
 int CuSuiteRunRegexDisplay(CuSuite* testSuite, const char *regex, void (*callback)(CuTestResult))
 {
-	int err;
+	int i;
 	regex_t preg;
 	regmatch_t pmatch[1];
 
-	if ((err = regcomp(&preg, regex, REG_EXTENDED | REG_NOSUB)) != 0)
+	if (regcomp(&preg, regex, REG_EXTENDED | REG_NOSUB) != 0)
 	{
 		return -1;
 	}
 
-	for (int i = 0; i < testSuite->count ; ++i)
+	for (i = 0; i < testSuite->count ; ++i)
 	{
 		CuTest* testCase = testSuite->list[i];
 		if (regexec(&preg, testCase->name, 0, pmatch, 0) == 0)
