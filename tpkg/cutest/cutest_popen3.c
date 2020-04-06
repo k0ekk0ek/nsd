@@ -92,14 +92,14 @@ static int popen3_echo(const char *str, int fds)
 			fprintf(stderr, "%s: read: %s\n", __func__, strerror(errno));
 			goto bail;
 		}
-		assert(got <= size);
+		assert(got <= (ssize_t)size);
 		buf[got] = 0;
 		if (!(new_ln = strchr(buf, '\n'))) {
 			fprintf(stderr, "%s: Could not read header from stdout\n", __func__);
 			goto bail;
 		}
 		new_ln += 1;
-		if ((got - (new_ln - buf)) != len || strncmp(new_ln, str, len) != 0) {
+		if ((got - (new_ln - buf)) != (int)len || strncmp(new_ln, str, len) != 0) {
 			fprintf(stderr, "%s: Output on stdout did not match input\n", __func__);
 			goto bail;
 		}
@@ -110,14 +110,14 @@ static int popen3_echo(const char *str, int fds)
 			fprintf(stderr, "%s: read: %s\n", __func__, strerror(errno));
 			goto bail;
 		}
-		assert(got <= size);
+		assert(got <= (ssize_t)size);
 		buf[got] = 0;
 		if (!(new_ln = strchr(buf, '\n'))) {
 			fprintf(stderr, "%s: Could not read header from stderr\n", __func__);
 			goto bail;
 		}
 		new_ln += 1;
-		if ((got - (new_ln - buf)) != len || strncmp(new_ln, str, len) != 0) {
+		if ((got - (new_ln - buf)) != (int)len || strncmp(new_ln, str, len) != 0) {
 			fprintf(stderr, "%s: Output on stderr did not match input\n", __func__);
 			goto bail;
 		}
