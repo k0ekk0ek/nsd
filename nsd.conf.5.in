@@ -141,9 +141,10 @@ clause. There may only be one
 .B server:
 clause.
 .TP
-.B ip\-address:\fR <ip4 or ip6>[@port] [servers] [bindtodevice] [setfib]
-NSD will bind to the listed ip\-address. Can be given multiple times
-to bind multiple ip\-addresses. Optionally, a port number can be given.
+.B ip\-address:\fR <ip4 or ip6>[@port] [tcp|udp] [servers] [bindtodevice] [setfib]
+NSD will bind to the listed ip\-address. Can be given multiple times 
+to bind multiple ip\-addresses. Optionally, a port number and protocol type
+can be provided.
 If none are given NSD listens to the wildcard interface. Same as command-line option
 .BR \-a.
 .IP

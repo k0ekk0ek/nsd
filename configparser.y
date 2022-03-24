@@ -184,6 +184,7 @@ struct component {
 %token VAR_ALLOW_QUERY
 %token VAR_AXFR
 %token VAR_UDP
+%token VAR_TCP
 %token VAR_NOTIFY_RETRY
 %token VAR_ALLOW_NOTIFY
 %token VAR_REQUEST_XFR
@@ -264,6 +265,7 @@ server_option:
 
         cfg_parser->ip = $2;
       }
+    socket_types
     socket_options
     {
       cfg_parser->ip = NULL;
@@ -531,6 +533,26 @@ server_option:
         }
       }
     }
+  ;
+
+socket_types:
+  | udp_and_tcp
+    { cfg_parser->ip->udp = 1;
+      cfg_parser->ip->tcp = 1;
+    }
+  | VAR_UDP
+    { cfg_parser->ip->tcp = 0;
+      cfg_parser->ip->udp = 1;
+    }
+  | VAR_TCP
+    { cfg_parser->ip->tcp = 1;
+      cfg_parser->ip->udp = 0;
+    }
+  ;
+
+udp_and_tcp:
+    VAR_UDP VAR_TCP
+  | VAR_TCP VAR_UDP
   ;
 
 socket_options:
@@ -1153,6 +1175,8 @@ ip_address:
         cfg_parser->opt->region, sizeof(*ip));
       ip->address = region_strdup(cfg_parser->opt->region, $1);
       ip->fib = -1;
+      ip->udp = 2;
+      ip->tcp = 2;
       $$ = ip;
     } ;
 
