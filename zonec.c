@@ -214,7 +214,7 @@ int32_t zonec_accept(
 	if (type == TYPE_SOA) {
 		if (domain != state->zone->apex) {
 			char s[MAXDOMAINLEN*5];
-			snprintf(s, sizeof(s), "%s", domain_to_string(state->zone->apex));
+			snprintf(s, sizeof(s), "%s", domain_to_string(domain));
 			zone_log(parser, priority, "SOA record with invalid domain name, '%s' is not '%s'",
 				domain_to_string(state->zone->apex), s);
 		} else if (has_soa(domain)) {
@@ -359,13 +359,14 @@ zonec_read(
 {
 	const struct dname *origin;
 	zone_parser_t parser;
-	zone_options_t options = { 0 };
+	zone_options_t options;
 	zone_name_buffer_t name_buffer;
 	zone_rdata_buffer_t rdata_buffer;
 	zone_buffers_t buffers = { 1, &name_buffer, &rdata_buffer };
 	struct zonec_state state = { database, domains, zone, NULL, 0, 0 };
 
 	origin = domain_dname(zone->apex);
+	memset(&options, 0, sizeof(options));
 	options.origin.octets = dname_name(origin);
 	options.origin.length = origin->name_size;
 	options.default_ttl = DEFAULT_TTL;
@@ -387,12 +388,10 @@ zonec_read(
 	} else if (!zone->soa_rrset || zone->soa_rrset->rr_count == 0) {
 		log_msg(LOG_ERR, "zone configured as '%s' has no SOA record", name);
 		state.errors++;
-#if 0
-	} else if (dname_compare(domain_dname(zone->soa_rrset->rrs[0].owner), dname) != 0) {
+	} else if (dname_compare(domain_dname(zone->soa_rrset->rrs[0].owner), origin) != 0) {
 		log_msg(LOG_ERR, "zone configured as '%s', but SOA has owner '%s'",
 		        name, domain_to_string(zone->soa_rrset->rrs[0].owner));
 		state.errors++;
-#endif
 	}
 
 	if(!zone_is_slave(zone->opts) && !check_dname(zone))
