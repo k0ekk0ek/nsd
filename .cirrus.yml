@@ -114,7 +114,7 @@ task:
         LIBEVENT: "/opt/homebrew/opt/libevent"
 
   build_script:
-    - git submodule update
+    - git submodule update --init
     - autoconf && autoheader
     - (cd simdzone && autoconf)
     - libtoolize -c -i || glibtoolize -c -i
