@@ -618,6 +618,9 @@ static void parse_rr_log(
 static int
 parse_rr_str(struct zone *zone, char *input, struct parse_rr_state *state)
 {
+	int32_t code;
+	size_t length;
+	char *string;
 	const struct dname *origin;
 	zone_parser_t parser;
 	zone_options_t options;
@@ -638,9 +641,8 @@ parse_rr_str(struct zone *zone, char *input, struct parse_rr_state *state)
 	options.log.callback = &parse_rr_log;
 	options.accept.callback = &parse_rr_accept;
 
-	int32_t code;
-	size_t length = strlen(input);
-	char *string = malloc(length + 1 + ZONE_BLOCK_SIZE);
+	length = strlen(input);
+	string = malloc(length + 1 + ZONE_BLOCK_SIZE);
 	memcpy(string, input, length);
 	string[length] = 0;
 
