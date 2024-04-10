@@ -640,7 +640,7 @@ parse_rr_str(struct zone *zone, char *input, struct parse_rr_state *state)
 
 	int32_t code;
 	size_t length = strlen(input);
-	char *string = malloc(length + 1 + ZONE_PADDING_SIZE);
+	char *string = malloc(length + 1 + ZONE_BLOCK_SIZE);
 	memcpy(string, input, length);
 	string[length] = 0;
 
