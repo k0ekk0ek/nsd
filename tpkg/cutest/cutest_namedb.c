@@ -609,6 +609,8 @@ static void parse_rr_log(
 
 	(void)parser;
 	(void)category;
+	(void)file;
+	(void)line;
 	(void)message;
 
 	assert(state->owner == NULL);
