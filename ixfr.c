@@ -2694,8 +2694,12 @@ static int ixfr_read_one_more_file(struct nsd* nsd, struct zone* zone,
 	const char* zfile, int num_files, uint32_t *dest_serial)
 {
 	char ixfrfile[1024+24];
+	struct stat statbuf;
 	int file_num = num_files+1;
 	make_ixfr_name(ixfrfile, sizeof(ixfrfile), zfile, file_num);
+	/* if the file does not exist, all transfers have been read */
+	if (stat(ixfrfile, &statbuf) != 0 && errno == ENOENT)
+		return 0;
 	return ixfr_data_read(nsd, zone, ixfrfile, dest_serial, file_num);
 }
 
