@@ -598,6 +598,8 @@ static int32_t parse_rr_accept(
 static void parse_rr_log(
 	zone_parser_t *parser,
 	uint32_t category,
+	const char *file,
+	size_t line,
 	const char *message,
 	void *user_data)
 {

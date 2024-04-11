@@ -2595,7 +2595,7 @@ static void ixfr_data_log(
 	(void)user_data;
 	if (category == ZONE_WARNING)
 		priority = LOG_WARNING;
-	log_msg(priority, message);
+	log_msg(priority, "%s", message);
 }
 
 /* read ixfr data from file */
