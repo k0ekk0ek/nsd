@@ -321,6 +321,8 @@ int32_t zonec_accept(
 static void zonec_log(
 	zone_parser_t *parser,
 	uint32_t category,
+	const char *file,
+	size_t line,
 	const char *message,
 	void *user_data)
 {
@@ -342,7 +344,10 @@ static void zonec_log(
 		break;
 	}
 
-	log_msg(priority, "%s:%zu: %s", parser->file->name, parser->file->line, message);
+	if (file)
+		log_msg(priority, "%s:%zu: %s", file, line, message);
+	else
+		log_msg(priority, "%s", message);
 }
 
 /*
