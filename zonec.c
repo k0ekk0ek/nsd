@@ -265,7 +265,7 @@ int32_t zonec_accept(
 		struct rr *rrs;
 		if (type != TYPE_RRSIG && ttl != rrset->rrs[0].ttl) {
 			zone_log(parser, priority, "%s TTL %"PRIu16" does not match TTL %u of %s RRset",
-				domain_to_string(domain), ttl, rrset->rrs[0].ttl,
+				domain_to_string(domain), (uint16_t)ttl, rrset->rrs[0].ttl,
 					rrtype_to_string(type));
                 }
 
@@ -330,6 +330,7 @@ static void zonec_log(
 	struct zonec_state *state = (struct zonec_state *)user_data;
 
 	assert(state);
+	(void)parser;
 
 	switch (category) {
 	case ZONE_INFO:
