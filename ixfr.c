@@ -2583,11 +2583,15 @@ static int32_t ixfr_data_accept(
 static void ixfr_data_log(
 	zone_parser_t *parser,
 	uint32_t category,
+	const char *file,
+	size_t line,
 	const char *message,
 	void *user_data)
 {
 	int priority = LOG_ERR;
 	(void)parser;
+	(void)file;
+	(void)line;
 	(void)user_data;
 	if (category == ZONE_WARNING)
 		priority = LOG_WARNING;
