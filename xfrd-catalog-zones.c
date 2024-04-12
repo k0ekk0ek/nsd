@@ -1111,7 +1111,7 @@ xfr_writer_init(struct xfrd_xfr_writer* xw,
 		struct xfrd_catalog_producer_zone* producer_zone)
 {
 	xw->producer_zone = producer_zone;
-	buffer_create_from( &xw->packet, &xw->packet_space
+	buffer_create_from( &xw->packet, xw->packet_space
 	                               , sizeof(xw->packet_space));
 	buffer_write(&xw->packet, "\000\000\000\000\000\000"
 	                          "\000\000\000\000\000\000", 12); /* header */
