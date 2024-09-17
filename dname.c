@@ -537,33 +537,42 @@ char* wirelabel2str(const uint8_t* label)
 	return buf;
 }
 
+nsd_nonnull((1,2))
+size_t wiredname2str_buf(const uint8_t *name, char *str, size_t len)
+{
+	size_t pos = 0;
+
+	do {
+		size_t lablen = *name;
+		if (pos + lablen + 2 /* '.' + '\0' */ >= len)
+			return 0;
+		for (; lablen; lablen--) {
+			const uint8_t chr = *(++name);
+			if (isalnum(chr) || chr == '-' || chr == '_' || chr == '*') {
+				str[pos++] = chr;
+			} else if (chr == '.' || chr == '\\') {
+				if (pos + 3 /* '\\' + chr + '\0' */ > len - lablen)
+					return 0;
+				str[pos++] = '\\';
+				str[pos++] = chr;
+			} else {
+				if (pos + 5 /* "\\000" + '\0' */ > len - lablen)
+					return 0;
+				snprintf(str + pos, 5, "\\%03" PRIu8, chr);
+				str[pos++] += 4;
+			}
+		}
+		str[pos++] = '.';
+	} while (lablen);
+
+	str[pos] = '\0';
+	return (ssize_t)pos;
+}
+
 char* wiredname2str(const uint8_t* dname)
 {
 	static char buf[MAXDOMAINLEN*5+3];
-	char* p = buf;
-	uint8_t lablen;
-	if(*dname == 0) {
-		strlcpy(buf, ".", sizeof(buf));
-		return buf;
-	}
-	lablen = *dname++;
-	while(lablen) {
-		while(lablen--) {
-			uint8_t ch = *dname++;
-			if (isalnum((unsigned char)ch) || ch == '-' || ch == '_' || ch == '*') {
-				*p++ = ch;
-			} else if (ch == '.' || ch == '\\') {
-				*p++ = '\\';
-				*p++ = ch;
-			} else {
-				snprintf(p, 5, "\\%03u", (unsigned int)ch);
-				p += 4;
-			}
-		}
-		lablen = *dname++;
-		*p++ = '.';
-	}
-	*p++ = 0;
+	wiredname2str_buf(dname, buf, sizeof(buf));
 	return buf;
 }
 

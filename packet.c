@@ -18,34 +18,6 @@
 int round_robin = 0;
 int minimal_responses = 0;
 
-static void
-encode_dname(query_type *q, domain_type *domain)
-{
-	while (domain->parent && query_get_dname_offset(q, domain) == 0) {
-		query_put_dname_offset(q, domain, buffer_position(q->packet));
-		DEBUG(DEBUG_NAME_COMPRESSION, 2,
-		      (LOG_INFO, "dname: %s, number: %lu, offset: %u\n",
-		       domain_to_string(domain),
-		       (unsigned long) domain->number,
-		       query_get_dname_offset(q, domain)));
-		buffer_write(q->packet, dname_name(domain_dname(domain)),
-			     label_length(dname_name(domain_dname(domain))) + 1U);
-		domain = domain->parent;
-	}
-	if (domain->parent) {
-		DEBUG(DEBUG_NAME_COMPRESSION, 2,
-		      (LOG_INFO, "dname: %s, number: %lu, pointer: %u\n",
-		       domain_to_string(domain),
-		       (unsigned long) domain->number,
-		       query_get_dname_offset(q, domain)));
-		assert(query_get_dname_offset(q, domain) <= MAX_COMPRESSION_OFFSET);
-		buffer_write_u16(q->packet,
-				 0xc000 | query_get_dname_offset(q, domain));
-	} else {
-		buffer_write_u8(q->packet, 0);
-	}
-}
-
 int
 packet_encode_rr(query_type *q, domain_type *owner, rr_type *rr, uint32_t ttl)
 {
@@ -53,6 +25,7 @@ packet_encode_rr(query_type *q, domain_type *owner, rr_type *rr, uint32_t ttl)
 	uint16_t rdlength = 0;
 	size_t rdlength_pos;
 	uint16_t j;
+	const rrtype_descriptor_type *descriptor;
 
 	assert(q);
 	assert(owner);
@@ -73,26 +46,8 @@ packet_encode_rr(query_type *q, domain_type *owner, rr_type *rr, uint32_t ttl)
 	rdlength_pos = buffer_position(q->packet);
 	buffer_skip(q->packet, sizeof(rdlength));
 
-	for (j = 0; j < rr->rdata_count; ++j) {
-		switch (rdata_atom_wireformat_type(rr->type, j)) {
-		case RDATA_WF_COMPRESSED_DNAME:
-			encode_dname(q, rdata_atom_domain(rr->rdatas[j]));
-			break;
-		case RDATA_WF_UNCOMPRESSED_DNAME:
-		{
-			const dname_type *dname = domain_dname(
-				rdata_atom_domain(rr->rdatas[j]));
-			buffer_write(q->packet,
-				     dname_name(dname), dname->name_size);
-			break;
-		}
-		default:
-			buffer_write(q->packet,
-				     rdata_atom_data(rr->rdatas[j]),
-				     rdata_atom_size(rr->rdatas[j]));
-			break;
-		}
-	}
+	descriptor = rrtype_descriptor_by_type(rr->type);
+	descriptor->write_rdata(q, rr->rdata, rr->rdlength);
 
 	if (!query_overflow(q)) {
 		rdlength = (buffer_position(q->packet) - rdlength_pos

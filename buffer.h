@@ -474,6 +474,12 @@ buffer_read_u16(buffer_type *buffer)
 	return result;
 }
 
+static inline uint16_t
+buffer_peek_u16(const buffer_type *buffer)
+{
+	return buffer_read_u16_at(buffer, buffer->_position);
+}
+
 static inline uint32_t
 buffer_read_u32_at(buffer_type *buffer, size_t at)
 {

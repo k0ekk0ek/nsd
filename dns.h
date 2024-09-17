@@ -165,7 +165,6 @@ typedef enum nsd_rc nsd_rc_type;
 #define TYPE_AVC	258
 
 #define TYPE_DLV	32769	/* RFC 4431 */
-#define PSEUDO_TYPE_DLV	RRTYPE_DESCRIPTORS_LENGTH
 
 #define SVCB_KEY_MANDATORY		0
 #define SVCB_KEY_ALPN			1
@@ -175,102 +174,86 @@ typedef enum nsd_rc nsd_rc_type;
 #define SVCB_KEY_ECH		5
 #define SVCB_KEY_IPV6HINT		6
 #define SVCB_KEY_DOHPATH		7
-#define SVCPARAMKEY_COUNT 8
 
 #define MAXLABELLEN	63
 #define MAXDOMAINLEN	255
 
-#define MAXRDATALEN	64      /* This is more than enough, think multiple TXT. */
 #define MAX_RDLENGTH	65535
 
 /* Maximum size of a single RR.  */
 #define MAX_RR_SIZE \
 	(MAXDOMAINLEN + sizeof(uint32_t) + 4*sizeof(uint16_t) + MAX_RDLENGTH)
 
-#define IP4ADDRLEN	(32/8)
-#define IP6ADDRLEN	(128/8)
 #define EUI48ADDRLEN	(48/8)
 #define EUI64ADDRLEN	(64/8)
 
 #define NSEC3_HASH_LEN 20
 
+#define IPSECKEY_NOGATEWAY      0       /* RFC 4025 */
+#define IPSECKEY_IP4            1
+#define IPSECKEY_IP6            2
+#define IPSECKEY_DNAME          3
+
 /*
  * The different types of RDATA wireformat data.
  */
-enum rdata_wireformat
+enum rdata_format
 {
-	RDATA_WF_COMPRESSED_DNAME,   /* Possibly compressed domain name.  */
-	RDATA_WF_UNCOMPRESSED_DNAME, /* Uncompressed domain name.  */
-	RDATA_WF_LITERAL_DNAME,      /* Literal (not downcased) dname.  */
-	RDATA_WF_BYTE,               /* 8-bit integer.  */
-	RDATA_WF_SHORT,              /* 16-bit integer.  */
-	RDATA_WF_LONG,               /* 32-bit integer.  */
-	RDATA_WF_TEXT,               /* Text string.  */
-	RDATA_WF_TEXTS,              /* Text string sequence.  */
-	RDATA_WF_A,                  /* 32-bit IPv4 address.  */
-	RDATA_WF_AAAA,               /* 128-bit IPv6 address.  */
-	RDATA_WF_BINARY,             /* Binary data (unknown length).  */
-	RDATA_WF_BINARYWITHLENGTH,   /* Binary data preceded by 1 byte length */
-	RDATA_WF_APL,                /* APL data.  */
-	RDATA_WF_IPSECGATEWAY,       /* IPSECKEY gateway ip4, ip6 or dname. */
-	RDATA_WF_ILNP64,             /* 64-bit uncompressed IPv6 address.  */
-	RDATA_WF_EUI48,	             /* 48-bit address.  */
-	RDATA_WF_EUI64,              /* 64-bit address.  */
-	RDATA_WF_LONG_TEXT,          /* Long (>255) text string. */
-	RDATA_WF_SVCPARAM            /* SvcParam <key>[=<value>] */
+	RDATA_COMPRESSED_DNAME,   /* Possibly compressed domain name. */
+	RDATA_UNCOMPRESSED_DNAME, /* Uncompressed domain name. */
+	RDATA_LITERAL_DNAME,      /* Literal (not downcased) dname. */
+	RDATA_BYTE,               /* 8-bit integer. */
+	RDATA_SHORT,              /* 16-bit integer. */
+	RDATA_LONG,               /* 32-bit integer. */
+	RDATA_STRING,             /* (Text) string. */
+	RDATA_STRINGS,            /* Text string sequence.  */
+	RDATA_A,                  /* 32-bit IPv4 address. */
+	RDATA_AAAA,               /* 128-bit IPv6 address. */
+	RDATA_BINARY,             /* Binary data (unknown length). */
+	RDATA_APL,                /* Address Prefix List (APL), zero or more items. */
+	RDATA_IPSECGATEWAY,       /* IPSECKEY gateway ip4, ip6 or dname. */
+	RDATA_ILNP64,             /* 64-bit uncompressed IPv6 address. */
+	RDATA_EUI48,              /* 48-bit address. */
+	RDATA_EUI64,              /* 64-bit address. */
+	RDATA_SVCPARAM            /* SvcParam <key>[=<value>] sequence. */
 };
-typedef enum rdata_wireformat rdata_wireformat_type;
+
+struct rdata_descriptor {
+	/** Wire format */
+	enum rdata_format format;
+	// FIXME: add callback for determining length?
+};
 
 /*
- * The different types of RDATA that can appear in the zone file.
+ * Reading and writing RDATA for import is done via specialized callback
+ * functions for improved performance. All other operations must use RDATA
+ * descriptors.
+ *
+ * The functions return: >= 0 success, -1 truncated, -2 malformed.
  */
-enum rdata_zoneformat
-{
-	RDATA_ZF_DNAME,		/* Domain name.  */
-	RDATA_ZF_LITERAL_DNAME,	/* DNS name (not lowercased domain name).  */
-	RDATA_ZF_TEXT,		/* Text string.  */
-	RDATA_ZF_TEXTS,		/* Text string sequence.  */
-	RDATA_ZF_BYTE,		/* 8-bit integer.  */
-	RDATA_ZF_SHORT,		/* 16-bit integer.  */
-	RDATA_ZF_LONG,		/* 32-bit integer.  */
-	RDATA_ZF_A,		/* 32-bit IPv4 address.  */
-	RDATA_ZF_AAAA,		/* 128-bit IPv6 address.  */
-	RDATA_ZF_RRTYPE,	/* RR type.  */
-	RDATA_ZF_ALGORITHM,	/* Cryptographic algorithm.  */
-	RDATA_ZF_CERTIFICATE_TYPE,
-	RDATA_ZF_PERIOD,	/* Time period.  */
-	RDATA_ZF_TIME,
-	RDATA_ZF_BASE64,	/* Base-64 binary data.  */
-	RDATA_ZF_BASE32,	/* Base-32 binary data.  */
-	RDATA_ZF_HEX,		/* Hexadecimal binary data.  */
-	RDATA_ZF_HEX_LEN,	/* Hexadecimal binary data. Skip initial length byte. */
-	RDATA_ZF_NSAP,		/* NSAP.  */
-	RDATA_ZF_APL,		/* APL.  */
-	RDATA_ZF_IPSECGATEWAY,	/* IPSECKEY gateway ip4, ip6 or dname. */
-	RDATA_ZF_SERVICES,	/* Protocol and port number bitmap.  */
-	RDATA_ZF_NXT,		/* NXT type bitmap.  */
-	RDATA_ZF_NSEC,		/* NSEC type bitmap.  */
-	RDATA_ZF_LOC,		/* Location data.  */
-	RDATA_ZF_ILNP64,	/* 64-bit uncompressed IPv6 address.  */
-	RDATA_ZF_EUI48,		/* EUI48 address.  */
-	RDATA_ZF_EUI64,		/* EUI64 address.  */
-	RDATA_ZF_LONG_TEXT,	/* Long (>255) text string. */
-	RDATA_ZF_TAG,		/* Text string without quotes. */
-	RDATA_ZF_SVCPARAM,	/* SvcParam <key>[=<value>] */
-	RDATA_ZF_UNKNOWN	/* Unknown data.  */
-};
-typedef enum rdata_zoneformat rdata_zoneformat_type;
+#define TRUNCATED (-1)
+#define MALFORMED (-2)
 
-struct rrtype_descriptor
-{
-	uint16_t    type;	/* RR type */
-	const char *name;	/* Textual name.  */
-	uint32_t    minimum;	/* Minimum number of RDATAs.  */
-	uint32_t    maximum;	/* Maximum number of RDATAs.  */
-	uint8_t     wireformat[MAXRDATALEN]; /* rdata_wireformat_type */
-	uint8_t     zoneformat[MAXRDATALEN]; /* rdata_zoneformat_type  */
+typedef int32_t(*read_rdata_function)(
+	struct domain_table *, struct buffer *, struct rr **);
+
+typedef void(*write_rdata_function)(
+	const struct domain_table *, const struct rr *, struct query *);
+
+struct type_descriptor {
+	/* RR type */
+	uint16_t type;
+	/* Textual name. */
+	const char *name;
+	/** Read resource record from wire format. */
+	read_rdata_function read_rdata;
+	/** Write resource record to query. */
+	write_rdata_function write_rdata;
+	struct {
+		size_t length;
+		const struct rdata_descriptor *fields;
+	} rdata;
 };
-typedef struct rrtype_descriptor rrtype_descriptor_type;
 
 /*
  * Indexed by type.  The special type "0" can be used to get a
@@ -278,9 +261,7 @@ typedef struct rrtype_descriptor rrtype_descriptor_type;
  *
  * AVC + 1
  */
-#define RRTYPE_DESCRIPTORS_LENGTH  (TYPE_AVC + 1)
-rrtype_descriptor_type *rrtype_descriptor_by_name(const char *name);
-rrtype_descriptor_type *rrtype_descriptor_by_type(uint16_t type);
+const struct type_descriptor *type_descriptor_by_type(uint16_t type);
 
 const char *rrtype_to_string(uint16_t rrtype);
 

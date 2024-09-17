@@ -271,7 +271,7 @@ static int ixfr_write_rr_pkt(struct query* query, struct buffer* packet,
 	int dname_len;
 	size_t rdlen;
 	size_t i;
-	rrtype_descriptor_type* descriptor;
+	const struct type_descriptor *descriptor;
 
 	if(total_added == 0) {
 		size_t oldmaxlen = query->maxlen;
@@ -321,14 +321,14 @@ static int ixfr_write_rr_pkt(struct query* query, struct buffer* packet,
 		return 1; /* attempt to skip this malformed rr, could assert */
 
 	/* rdata */
-	descriptor = rrtype_descriptor_by_type(tp);
-	for(i=0; i<descriptor->maximum; i++) {
+	descriptor = type_descriptor_by_type(tp);
+	for(size_t i=0; i < descriptor->rdata.length; i++) {
 		size_t copy_len = 0;
 		if(rdlen == 0)
 			break;
 
-		switch(rdata_atom_wireformat_type(tp, i)) {
-		case RDATA_WF_COMPRESSED_DNAME:
+		switch(descriptor->rdata.fields[i].format) {
+		case RDATA_COMPRESSED_DNAME:
 			dname_len = pktcompression_write_dname(packet, pcomp,
 				rr, rdlen);
 			if(dname_len == -1)
@@ -340,66 +340,59 @@ static int ixfr_write_rr_pkt(struct query* query, struct buffer* packet,
 			rr += dname_len;
 			rdlen -= dname_len;
 			break;
-		case RDATA_WF_UNCOMPRESSED_DNAME:
-		case RDATA_WF_LITERAL_DNAME:
+		case RDATA_UNCOMPRESSED_DNAME:
+		case RDATA_LITERAL_DNAME:
 			copy_len = rdlen;
 			break;
-		case RDATA_WF_BYTE:
+		case RDATA_BYTE:
 			copy_len = 1;
 			break;
-		case RDATA_WF_SHORT:
+		case RDATA_SHORT:
 			copy_len = 2;
 			break;
-		case RDATA_WF_LONG:
+		case RDATA_LONG:
 			copy_len = 4;
 			break;
-		case RDATA_WF_TEXTS:
-		case RDATA_WF_LONG_TEXT:
+		case RDATA_TEXTS:
 			copy_len = rdlen;
 			break;
-		case RDATA_WF_TEXT:
-		case RDATA_WF_BINARYWITHLENGTH:
+		case RDATA_STRING:
 			copy_len = 1;
 			if(rdlen > copy_len)
 				copy_len += rr[0];
 			break;
-		case RDATA_WF_A:
+		case RDATA_A:
 			copy_len = 4;
 			break;
-		case RDATA_WF_AAAA:
+		case RDATA_AAAA:
 			copy_len = 16;
 			break;
-		case RDATA_WF_ILNP64:
+		case RDATA_ILNP64:
 			copy_len = 8;
 			break;
-		case RDATA_WF_EUI48:
+		case RDATA_EUI48:
 			copy_len = EUI48ADDRLEN;
 			break;
-		case RDATA_WF_EUI64:
+		case RDATA_EUI64:
 			copy_len = EUI64ADDRLEN;
 			break;
-		case RDATA_WF_BINARY:
+		case RDATA_BINARY:
 			copy_len = rdlen;
 			break;
-		case RDATA_WF_APL:
-			copy_len = (sizeof(uint16_t)    /* address family */
-                                  + sizeof(uint8_t)   /* prefix */
-                                  + sizeof(uint8_t)); /* length */
-			if(copy_len <= rdlen)
-				copy_len += (rr[copy_len-1]&APL_LENGTH_MASK);
+		case RDATA_APL:
+			copy_len = rdlen; /* No need to iterate SvcParams individually */
 			break;
-		case RDATA_WF_IPSECGATEWAY:
+		case RDATA_IPSECGATEWAY:
 			copy_len = rdlen;
 			break;
-		case RDATA_WF_SVCPARAM:
-			copy_len = 4;
-			if(copy_len <= rdlen)
-				copy_len += read_uint16(rr+2);
+		case RDATA_SVCPARAM:
+			copy_len = rdlen; /* No need to iterate SvcParams individually */
 			break;
 		default:
 			copy_len = rdlen;
 			break;
 		}
+
 		if(copy_len) {
 			if(!buffer_available(packet, copy_len)) {
 				buffer_set_position(packet, oldpos);
@@ -2526,6 +2519,10 @@ static int32_t ixfr_data_accept(
 	domain = domain_table_insert(state->temptable, dname);
 	assert(domain);
 
+	//
+	// wont be need this here...
+	// we'll have the descriptor and use the read_rdata callback instead
+	//
 	rdata_count = rdata_wireformat_to_rdata_atoms(
 		state->tempregion, state->temptable, type, rdlength, &buffer, &rdatas);
 	assert(rdata_count > 0);

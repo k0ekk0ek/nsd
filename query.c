@@ -691,7 +691,8 @@ add_additional_rrsets(struct query *query, answer_type *answer,
 
 	for (i = 0; i < master_rrset->rr_count; ++i) {
 		int j;
-		domain_type *additional = rdata_atom_domain(master_rrset->rrs[i].rdatas[rdata_index]);
+		domain_type *additional;
+		memcpy(additional, master_rrset->rrs[i].rdata + rdata_index, sizeof(additional));
 		domain_type *match = additional;
 
 		assert(additional);
@@ -784,15 +785,15 @@ add_rrset(struct query   *query,
 		break;
 	case TYPE_MX:
 	case TYPE_KX:
-		add_additional_rrsets(query, answer, rrset, 1, 0,
+		add_additional_rrsets(query, answer, rrset, 2, 0,
 				      default_additional_rr_types);
 		break;
 	case TYPE_RT:
-		add_additional_rrsets(query, answer, rrset, 1, 0,
+		add_additional_rrsets(query, answer, rrset, 2, 0,
 				      rt_additional_rr_types);
 		break;
 	case TYPE_SRV:
-		add_additional_rrsets(query, answer, rrset, 3, 0,
+		add_additional_rrsets(query, answer, rrset, 6, 0,
 				      default_additional_rr_types);
 		break;
 	default:
@@ -832,7 +833,7 @@ query_synthesize_cname(struct query* q, struct answer* answer, const dname_type*
 			answer->rrsets[j]->rrs[0].type == TYPE_CNAME &&
 			dname_compare(domain_dname(answer->rrsets[j]->rrs[0].owner), from_name) == 0 &&
 			answer->rrsets[j]->rrs[0].rdata_count == 1 &&
-			dname_compare(domain_dname(answer->rrsets[j]->rrs[0].rdatas->domain), to_name) == 0) {
+			dname_compare(domain_dname(answer->rrsets[j]->rrs[0].rdata), to_name) == 0) {
 			DEBUG(DEBUG_QUERY,2, (LOG_INFO, "loop for synthesized CNAME rrset for query %s", dname_to_string(q->qname, NULL)));
 			return 0;
 		}
@@ -892,16 +893,14 @@ query_synthesize_cname(struct query* q, struct answer* answer, const dname_type*
 	memset(rrset, 0, sizeof(rrset_type));
 	rrset->zone = q->zone;
 	rrset->rr_count = 1;
-	rrset->rrs = (rr_type*) region_alloc(q->region, sizeof(rr_type));
+	rrset->rrs = (rr_type*) region_alloc(q->region, sizeof(rr_type) + sizeof(void*));
 	memset(rrset->rrs, 0, sizeof(rr_type));
 	rrset->rrs->owner = cname_domain;
 	rrset->rrs->ttl = ttl;
 	rrset->rrs->type = TYPE_CNAME;
 	rrset->rrs->klass = CLASS_IN;
-	rrset->rrs->rdata_count = 1;
-	rrset->rrs->rdatas = (rdata_atom_type*)region_alloc(q->region,
-		sizeof(rdata_atom_type));
-	rrset->rrs->rdatas->domain = cname_dest;
+	rrset->rrs->rdlength = sizeof(void*);
+	memset(rrset->rrs->rdata, cname_dest, sizeof(void*));
 
 	if(!add_rrset(q, answer, ANSWER_SECTION, cname_domain, rrset)) {
 		DEBUG(DEBUG_QUERY,2, (LOG_INFO, "could not add synthesized CNAME rrset to packet for query %s", dname_to_string(q->qname, NULL)));
@@ -1089,7 +1088,8 @@ answer_domain(struct nsd* nsd, struct query *q, answer_type *answer,
 		assert(rrset->rr_count > 0);
 		if (added) {
 			/* only process first CNAME record */
-			domain_type *closest_match = rdata_atom_domain(rrset->rrs[0].rdatas[0]);
+			domain_type *closest_match;
+			memcpy(closest_match, rrset->rrs[0].rdata, sizeof(void*));
 			domain_type *closest_encloser = closest_match;
 			zone_type* origzone = q->zone;
 			++q->cname_count;
@@ -1158,7 +1158,8 @@ answer_authoritative(struct nsd   *nsd,
 		/* process DNAME */
 		const dname_type* name = qname;
 		domain_type* src = closest_encloser;
-		domain_type *dest = rdata_atom_domain(rrset->rrs[0].rdatas[0]);
+		domain_type *dest;
+		memcpy(dest, rrset->rrs[0].rdata, sizeof(void*));
 		const dname_type* newname;
 		size_t newnum = 0;
 		zone_type* origzone = q->zone;

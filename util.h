@@ -384,6 +384,7 @@ struct state_pretty_rr {
 	const struct dname *previous_owner_origin;
 };
 struct state_pretty_rr* create_pretty_rr(struct region* region);
+
 /* print rr to file, returns 0 on failure(nothing is written) */
 int print_rr(FILE *out, struct state_pretty_rr* state, struct rr *record,
 	struct region* tmp_region, struct buffer* tmp_buffer);

@@ -48,6 +48,12 @@ struct dname
 	*/
 };
 
+struct dname_buffer {
+	struct dname dname;
+	/* worst case is 128 labels and domain name of length 255 */
+	uint8_t buffer[128 + MAXDOMAINLEN];
+};
+
 
 /*
  * Construct a new domain name based on NAME in wire format.  NAME

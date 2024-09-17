@@ -875,18 +875,19 @@ set_previous_owner(struct state_pretty_rr *state, const dname_type *dname)
 }
 
 int
-print_rr(FILE *out,
-         struct state_pretty_rr *state,
-         rr_type *record,
-	 region_type* rr_region,
-	 buffer_type* output)
+print_rr(
+	FILE *out,
+	struct state_pretty_rr *state,
+	rr_type *record,
+	region_type* rr_region,
+	buffer_type* output)
 {
-        rrtype_descriptor_type *descriptor
-                = rrtype_descriptor_by_type(record->type);
-        int result;
-        const dname_type *owner = domain_dname(record->owner);
+	const rrtype_descriptor_type *descriptor
+		= rrtype_descriptor_by_type(record->type);
+	int result;
+	const dname_type *owner = domain_dname(record->owner);
 	buffer_clear(output);
-        if (state) {
+	if (state) {
 		if (!state->previous_owner
 			|| dname_compare(state->previous_owner, owner) != 0) {
 			const dname_type *owner_origin
