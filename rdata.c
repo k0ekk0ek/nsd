@@ -386,8 +386,29 @@ int32_t copy_soa_rdata(
 		return MALFORMED;
 	const uint16_t length =
 		primary.dname.name_size + mailbox.dname.name_size + 20;
-	if (!buffer_available(dest, 2 + length))
-		return length;
+	if (pcomp) {
+		const size_t offset = buffer_position(dest);
+		if (pktcompression_write_dname(
+			dest, pcomp, dname_name(&primary), primary.dname.name_size) > 0)
+			goto no_space;
+		if (pktcompression_write_dname(
+			dest, pcomp, dname_name(&mailbox), mailbox.dname.name_size) > 0)
+			goto no_space;
+		//
+	}
+
+	//
+	// this is tricky, because we cannot determine how much space
+	// is needed for the name because it's compressed...
+	//
+
+
+
+
+
+	//if (!buffer_available(dest, 2 + length))
+	//	return length;
+	//buffer_
 	//buffer_write_u16(dest, length);
 	//buffer_write(dest, dname_name(&primary), primary.dname.name_size);
 	//buffer_write(dest, dname_name(&mailbox), mailbox.dname.name_size);
