@@ -75,13 +75,15 @@ struct ixfr_data {
 	 * for the older versions, and ends with the last del section,
 	 * and the SOA record with the newserial.
 	 * That is everything except the final add section for newserial. */
-	uint8_t* del;
+	struct buffer del;
+//	uint8_t* del;
 	/* byte length of the uncompressed wireformat RRs in del */
-	size_t del_len;
+//	size_t del_len;
 	/* the added RRs, ends with the newserial SOA record. */
-	uint8_t* add;
+	struct buffer add;
+//	uint8_t* add;
 	/* byte length of the uncompressed wireformat RRs in add */
-	size_t add_len;
+//	size_t add_len;
 	/* log string (if not NULL) about where data is from */
 	char* log_str;
 	/* the number of the ixfr.<num> file on disk. If 0, there is no
@@ -111,9 +113,9 @@ struct ixfr_store {
 	/* the ixfr data that we are storing into */
 	struct ixfr_data* data;
 	/* capacity for the delrrs storage, size of ixfr del allocation */
-	size_t del_capacity;
+	//size_t del_capacity;
 	/* capacity for the addrrs storage, size of ixfr add allocation */
-	size_t add_capacity;
+	//size_t add_capacity;
 };
 
 /*

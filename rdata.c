@@ -316,23 +316,50 @@ int32_t read_soa_rdata(
 	return rdlength;
 }
 
+//
+// i think it'd work better if we abstracted the compression object
+//
 void write_soa_rdata(
-	const struct domain_table *domains, const struct rr *rr, struct query *query)
+	const struct rr *rr, struct query *query, struct buffer *packet)
 {
-	const struct domain *primary, *mailbox;
+	const struct *domains[2];
+	const size_t mark = buffer_position(packet);
 	/* domain + domain + long + long + long + long + long */
 	assert(rr->rdlength == 2 * sizeof(void*) + 20);
-	memcpy(primary, rr->rdata, sizeof(void*));
-	memcpy(mailbox, rr->rdata + sizeof(void*), sizeof(void*));
-	encode_dname(query, primary);
-	encode_dname(query, mailbox);
-	buffer_write(query->packet, rr->rdata + (2*sizeof(void*)), 20);
+	memcpy(domains[0], rr->rdata, sizeof(void*));
+	memcpy(domains[1], rr->rdata + sizeof(void*), sizeof(void*));
+	if (query) {
+		encode_dname(query, domains[0]);
+		encode_dname(query, domains[1]);
+	} else {
+		const struct *dnames[2];
+		dnames[0] = domain_dname(primary);
+		dnames[1] = domain_dname(mailbox);
+		buffer_write(packet, dname_name(dnames[0]), dnames[0]->name_size);
+		buffer_write(packet, dname_name(dnames[1]), dnames[1]->name_size);
+	}
+	buffer_write(packet, rr->rdata + (2 * sizeof(void*)), 20);
+	return buffer_position(packet) - mark;
+}
+
+int32_t uncompressed_soa_rdlength(
+	struct buffer *source, const struct rr *rr)
+{
+	const struct domain *domains[2];
+	const struct dname *dnames[2];
+	memcpy(&domains[0], rr->rdata, sizeof(void*));
+	memcpy(&domains[1], rr->rdata + sizeof(void*), sizeof(void*));
+	dnames[0] = domain_dname(domains[0]);
+	dnames[1] = domain_dname(domains[1]);
+	return dnames[0]->name_size + dnames[1]->name_size + 20;
 }
 
 int32_t read_wks_rdata(
 	struct domain_table *domains, struct buffer *packet, struct rr **rr)
 {
+	//
 	// implement
+	//
 }
 
 int32_t read_ptr_rdata(
@@ -407,6 +434,16 @@ void write_mx_rdata(
 	encode_dname(query, domain);
 }
 
+uint16_t count_mx_rdlength(const struct *rr)
+{
+	const struct domain *domain;
+	const struct dname *dname;
+	assert(rdlength == 2 + sizeof(void*));
+	memcpy(&domain, rr->rdata + 2, sizeof(void*));
+	dname = domain_dname(domain);
+	return 2 + dname->name_size;
+}
+
 int32_t read_txt_rdata(
 	struct domain_table *domains, struct buffer *packet, struct rr **rr)
 {
@@ -460,6 +497,8 @@ void write_rp_rdata(
 	buffer_write(packet, dname_name(mbox), mbox->name_size);
 	buffer_write(packet, dname_name(txt), txt->name_size);
 }
+
+uint16_t count_rp_rdata(const struct rr
 
 int32_t read_afsdb_rdata(
 	struct domain_table *domains, struct buffer *packet, struct rr **rr)
