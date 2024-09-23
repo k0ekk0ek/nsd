@@ -230,6 +230,20 @@ void write_generic_rdata(
 	buffer_write(query->packet, rr->rdata, rr->rdlength);
 }
 
+void copy_generic_rdata(
+	struct buffer *src, struct buffer *dest, struct pktcompression *pcomp)
+{
+	const int32_t rdlength = (int32_t)buffer_read_u16(src);
+
+	(void)pcomp;
+	if (!buffer_available(dest, rdlength + 2))
+		return rdlength + 2;
+	const uint8_t *rdata = buffer_current(src);
+	buffer_write_u16(dest, (uint16_t)rdlength);
+	buffer_write(dest, rdata, rdlength);
+	return rdlength + 2;
+}
+
 int32_t read_a_rdata(
 	struct domain_table *domains, struct buffer *packet, struct rr **rr)
 {
@@ -342,17 +356,78 @@ void write_soa_rdata(
 	return buffer_position(packet) - mark;
 }
 
-int32_t uncompressed_soa_rdlength(
-	struct buffer *source, const struct rr *rr)
+//int32_t uncompressed_soa_rdlength(
+//	struct buffer *source, const struct rr *rr)
+//{
+//	const struct domain *domains[2];
+//	const struct dname *dnames[2];
+//	memcpy(&domains[0], rr->rdata, sizeof(void*));
+//	memcpy(&domains[1], rr->rdata + sizeof(void*), sizeof(void*));
+//	dnames[0] = domain_dname(domains[0]);
+//	dnames[1] = domain_dname(domains[1]);
+//	return dnames[0]->name_size + dnames[1]->name_size + 20;
+//}
+
+//
+// we must return the number of bytes that would have been written!
+//
+int32_t copy_soa_rdata(
+	struct buffer *src, struct buffer *dest, void *pcomp)
 {
-	const struct domain *domains[2];
-	const struct dname *dnames[2];
-	memcpy(&domains[0], rr->rdata, sizeof(void*));
-	memcpy(&domains[1], rr->rdata + sizeof(void*), sizeof(void*));
-	dnames[0] = domain_dname(domains[0]);
-	dnames[1] = domain_dname(domains[1]);
-	return dnames[0]->name_size + dnames[1]->name_size + 20;
+	struct dname_buffer primary, mailbox;
+	const size_t mark = buffer_position(src);
+	const int32_t rdlength = (int32_t)buffer_read_u16(src);
+
+	if (rdlength < 20 ||
+	    !dname_make_from_packet_static(&primary, src, 1, 1) ||
+	    !dname_make_from_packet_static(&mailbox, src, 1, 1) ||
+			buffer_remaining(src) < 20 ||
+	    buffer_position(src) - mark != rdlength - 20)
+		return MALFORMED;
+	const uint16_t length =
+		primary.dname.name_size + mailbox.dname.name_size + 20;
+	if (!buffer_available(dest, 2 + length))
+		return length;
+	//buffer_write_u16(dest, length);
+	//buffer_write(dest, dname_name(&primary), primary.dname.name_size);
+	//buffer_write(dest, dname_name(&mailbox), mailbox.dname.name_size);
+	//const uint8_t *
+	//buffer_write(dest,
+	//	return MALFORMED;
+	//const size_t length =
+	//	2 + primary.dname.name_size + mailbox.dname.name_size + 20;
+	//if (
+
+//	if ((count = copy_compressed_name(src, dest, pcomp)) < 0)
+//		return count;
+//	length += count;
+//	if ((count = copy_compressed_name(src, dest, pcomp)) < 0)
+//		return count;
+//	length += count;
+//	if (length != rdlength - 20)
+//		return MALFORMED;
+//	if (!buffer_available
+
+	//
+//	    copy_compressed_name(src, dest, pcomp) < 0 ||
+//	    rdlength != buffer_position(src) - mark + 22)
+//		return MALFORMED;
+//	if (!buffer_available(dest, 20))
+	//if (!dname_make_from_packet_static(&dname, src, 1, 1) ||
+	//    rdlength >= (buffer_position(src) - mark) - 2)
+	//	return MALFORMED;
+
+	//
+	// we know we get two dnames first
+	//
 }
+
+
+
+
+
+
+
 
 int32_t read_wks_rdata(
 	struct domain_table *domains, struct buffer *packet, struct rr **rr)
