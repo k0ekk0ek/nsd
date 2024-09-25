@@ -40,6 +40,15 @@ struct zone_ixfr {
 	uint32_t newest_serial;
 };
 
+struct ixfr_rrs {
+	struct stream stream;
+	uint8_t *seq;
+	/* byte length of the uncompressed wireformat RRs in del */
+	size_t len;
+	/* capacity for the RRs storage, size of ixfr allocation */
+	size_t capacity;
+};
+
 /* Data structure that stores one IXFR.
  * The RRs are stored in uncompressed wireformat, that means
  * an uncompressed domain name, type, class, TTL, rdatalen,
@@ -75,12 +84,12 @@ struct ixfr_data {
 	 * for the older versions, and ends with the last del section,
 	 * and the SOA record with the newserial.
 	 * That is everything except the final add section for newserial. */
-	struct buffer del;
+	struct ixfr_rrs del;
 //	uint8_t* del;
 	/* byte length of the uncompressed wireformat RRs in del */
 //	size_t del_len;
 	/* the added RRs, ends with the newserial SOA record. */
-	struct buffer add;
+	struct ixfr_rrs add;
 //	uint8_t* add;
 	/* byte length of the uncompressed wireformat RRs in add */
 //	size_t add_len;
@@ -113,9 +122,9 @@ struct ixfr_store {
 	/* the ixfr data that we are storing into */
 	struct ixfr_data* data;
 	/* capacity for the delrrs storage, size of ixfr del allocation */
-	//size_t del_capacity;
+//	size_t del_capacity; << move this to the ixfr_data structure
 	/* capacity for the addrrs storage, size of ixfr add allocation */
-	//size_t add_capacity;
+//	size_t add_capacity; << move this to the ixfr_data structure
 };
 
 /*

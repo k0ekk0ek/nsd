@@ -259,6 +259,73 @@ static int pktcompression_write_dname(struct buffer* packet,
 	return wirelen;
 }
 
+static int32_t ixfr_stream_get_position(
+	struct stream *stream, size_t *position)
+{
+	*position = buffer_position(((struct ixfr_stream*)stream)->packet);
+	return 0;
+}
+
+static int32_t ixfr_stream_set_position(
+	struct stream *stream, const size_t *position)
+{
+	buffer_set_position(((struct ixfr_stream *)stream)->packet, *position);
+	return 0;
+}
+
+static int32_t ixfr_stream_write_data(
+	struct stream *stream, const uint8_t *data, size_t size)
+{
+	buffer_write(((struct ixfr_stream *)stream)->packet, data, size);
+	return 0;
+}
+
+static int32_t ixfr_stream_write_data_at(
+	struct stream *stream, size_t at, const uint8_t *data, size_t size)
+{
+	buffer_write_at(((struct ixfr_stream *)stream)->packet, at, data, size);
+	return 0;
+}
+
+static int32_t ixfr_stream_write_name(
+	struct stream *stream, const struct dname *dname)
+{
+	struct ixfr_stream *ixfr_stream = (struct ixfr_stream *)stream;
+	uint8_t *rr = buffer_current(ixfr_stream->packet);
+	size_t rrlen = buffer_remaining(ixfr_stream->packet);
+
+	int32_t wirelen = pktcompression_write_dname(
+		ixfr_stream->packet, ixfr_stream->pcomp, rr, rrlen);
+	switch (wirelen) {
+		case 0:
+			return TRUNCATED;
+		case -1:
+			return MALFORMED;
+		default:
+			return wirelen;
+	}
+}
+
+struct ixfr_stream {
+	struct stream stream;
+	struct query *query;
+	struct buffer *packet;
+	struct pktcompression *pcomp;
+};
+
+static struct ixfr_stream make_ixfr_stream(
+	struct buffer *packet)
+{
+	return (struct ixfr_stream){ {
+		&ixfr_stream_get_position,
+		&ixfr_stream_set_position,
+		&ixfr_stream_write_data,
+		&ixfr_stream_write_data_at,
+		&ixfr_stream_write_name},
+		query, packet, pcomp
+	};
+}
+
 /* write an RR into the packet with compression for domain names,
  * return 0 and resets position if it does not fit in the packet. */
 static int ixfr_write_rr_pkt(struct query* query, struct buffer* packet,
@@ -315,98 +382,17 @@ static int ixfr_write_rr_pkt(struct query* query, struct buffer* packet,
 	rdlen = read_uint16(rr);
 	rr += 2;
 	rrlen -= 2;
-	rdpos = buffer_position(packet);
-	buffer_write_u16(packet, 0);
-	if(rdlen > rrlen)
-		return 1; /* attempt to skip this malformed rr, could assert */
 
-	/* rdata */
+	struct buffer rrbuffer;
+	buffer_create_from(&rrbuffer, rr, rrlen);
+	struct ixfr_stream stream = make_ixfr_stream(query, packet, pcomp);
+
 	descriptor = type_descriptor_by_type(tp);
-	for(size_t i=0; i < descriptor->rdata.length; i++) {
-		size_t copy_len = 0;
-		if(rdlen == 0)
-			break;
+	if (descriptor->replicate_rdata(&rrbuffer, &stream) == MALFORMED)
+		return 1;
 
-		switch(descriptor->rdata.fields[i].format) {
-		case RDATA_COMPRESSED_DNAME:
-			dname_len = pktcompression_write_dname(packet, pcomp,
-				rr, rdlen);
-			if(dname_len == -1)
-				return 1; /* attempt to skip malformed rr */
-			if(dname_len == 0) {
-				buffer_set_position(packet, oldpos);
-				return 0;
-			}
-			rr += dname_len;
-			rdlen -= dname_len;
-			break;
-		case RDATA_UNCOMPRESSED_DNAME:
-		case RDATA_LITERAL_DNAME:
-			copy_len = rdlen;
-			break;
-		case RDATA_BYTE:
-			copy_len = 1;
-			break;
-		case RDATA_SHORT:
-			copy_len = 2;
-			break;
-		case RDATA_LONG:
-			copy_len = 4;
-			break;
-		case RDATA_TEXTS:
-			copy_len = rdlen;
-			break;
-		case RDATA_STRING:
-			copy_len = 1;
-			if(rdlen > copy_len)
-				copy_len += rr[0];
-			break;
-		case RDATA_A:
-			copy_len = 4;
-			break;
-		case RDATA_AAAA:
-			copy_len = 16;
-			break;
-		case RDATA_ILNP64:
-			copy_len = 8;
-			break;
-		case RDATA_EUI48:
-			copy_len = EUI48ADDRLEN;
-			break;
-		case RDATA_EUI64:
-			copy_len = EUI64ADDRLEN;
-			break;
-		case RDATA_BINARY:
-			copy_len = rdlen;
-			break;
-		case RDATA_APL:
-			copy_len = rdlen; /* No need to iterate SvcParams individually */
-			break;
-		case RDATA_IPSECGATEWAY:
-			copy_len = rdlen;
-			break;
-		case RDATA_SVCPARAM:
-			copy_len = rdlen; /* No need to iterate SvcParams individually */
-			break;
-		default:
-			copy_len = rdlen;
-			break;
-		}
-
-		if(copy_len) {
-			if(!buffer_available(packet, copy_len)) {
-				buffer_set_position(packet, oldpos);
-				return 0;
-			}
-			if(copy_len > rdlen)
-				return 1; /* assert of skip malformed */
-			buffer_write(packet, rr, copy_len);
-			rr += copy_len;
-			rdlen -= copy_len;
-		}
-	}
 	/* write compressed rdata length */
-	buffer_write_u16_at(packet, rdpos, buffer_position(packet)-rdpos-2);
+//	buffer_write_u16_at(packet, rdpos, buffer_position(packet)-rdpos-2);
 	if(total_added == 0) {
 		size_t oldmaxlen = query->maxlen;
 		query->maxlen = (query->tcp?TCP_MAX_MESSAGE_LEN:UDP_MAX_MESSAGE_LEN);
@@ -929,8 +915,8 @@ static void ixfr_data_free(struct ixfr_data* data)
 		return;
 	free(data->newsoa);
 	free(data->oldsoa);
-	free(data->del);
-	free(data->add);
+	free(data->del.buf);
+	free(data->add.buf);
 	free(data->log_str);
 	free(data);
 }
@@ -948,6 +934,13 @@ struct ixfr_store* ixfr_store_start(struct zone* zone,
 	memset(ixfr_store, 0, sizeof(*ixfr_store));
 	ixfr_store->zone = zone;
 	ixfr_store->data = xalloc_zero(sizeof(*ixfr_store->data));
+	/* set stream callbacks */
+	ixfr_store->data.del.stream.get_position = &ixfr_rrs_getpos;
+	ixfr_store->data.del.stream.set_position = &ixfr_rrs_setpos;
+	ixfr_store->data.del.stream.write_data = &ixfr_rrs_write;
+	ixfr_store->data.del.stream.write_data_at = &ixfr_rrs_write_at;
+	ixfr_store->data.del.stream.write_name = &ixfr_rrs_write_name;
+	ixfr_store->data.add.stream = ixfr_store->data.del.stream;
 	return ixfr_store;
 }
 
@@ -966,26 +959,82 @@ void ixfr_store_free(struct ixfr_store* ixfr_store)
 }
 
 /* make space in record data for the new size, grows the allocation */
-static void ixfr_rrs_make_space(uint8_t** rrs, size_t* len, size_t* capacity,
-	size_t added)
+static void ixfr_rrs_make_space(struct ixfr_rrs *rrs, size_t added)
 {
 	size_t newsize = 0;
-	if(*rrs == NULL) {
+	if(rrs->buf == NULL) {
 		newsize = IXFR_STORE_INITIAL_SIZE;
 	} else {
-		if(*len + added <= *capacity)
+		if(rrs->len + added <= *capacity)
 			return; /* already enough space */
 		newsize = (*capacity)*2;
 	}
-	if(*len + added > newsize)
-		newsize = *len + added;
-	if(*rrs == NULL) {
-		*rrs = xalloc(newsize);
+	if(rrs->len + added > newsize)
+		newsize = rrs->len + added;
+	if(rrs->buf == NULL) {
+		rrs->buf = xalloc(newsize);
 	} else {
-		*rrs = xrealloc(*rrs, newsize);
+		rrs->buf = xrealloc(*rrs, newsize);
 	}
-	*capacity = newsize;
+	rrs->capacity = newsize;
 }
+
+static int32_t ixfr_rrs_getpos(
+	struct stream *stream, size_t *pos)
+{
+	struct ixfr_rrs *rrs = (void*)stream;
+	*pos = rrs->len;
+	return 0;
+}
+
+static int32_t ixfr_rrs_setpos(
+	struct stream *stream, size_t *pos)
+{
+	struct ixfr_rrs *rrs = (void*)stream;
+	assert(*pos <= rrs->len);
+	rrs->len = *pos;
+	return 0;
+}
+
+static ssize_t ixfr_rrs_write(
+	struct stream *stream, const uint8_t *ptr, size_t len)
+{
+	struct ixfr_rrs *rrs = (void*)stream;
+	assert(rrs->len <= rrs->capacity);
+	if (rrs->capacity - rrs->len < len)
+		ixfr_rrs_make_space(rrs, len);
+	memmove(rr->buf + rrs->len, ptr, len);
+	return 0;
+}
+
+static ssize_t ixfr_rrs_write_at(
+	struct stream *stream, size_t pos, const uint8_t *ptr, size_t len)
+{
+	struct ixfr_rrs *rrs = (void*)stream;
+	assert(rrs->len <= rrs->capacity);
+	if (pos >= rrs->len)
+		return -1;
+	if (rrs->capacity - pos < len)
+		ixfr_rrs_make_space(rrs, len);
+	memmove(rrs->buf + pos, ptr, len);
+	return 0;
+}
+
+static ssize_t ixfr_rrs_write_name(
+	struct stream *stream, const struct dname *dname)
+{
+	struct ixfr_rrs *rrs = (void*)stream;
+	assert(rrs->len <= rrs->capacity);
+	if (rrs->capacity - rrs->len < dname->name_size)
+		ixfr_rrs_make_space(rrs, dname->name_size);
+	memmove(rrs->buf + rrs->len, dname_name(dname), dname->name_size);
+	rrs->len += dname->name_size;
+	return 0;
+}
+
+
+
+
 
 /* put new SOA record after delrrs and addrrs */
 static void ixfr_put_newsoa(struct ixfr_store* ixfr_store, uint8_t** rrs,
@@ -1241,15 +1290,10 @@ void ixfr_store_add_oldsoa(struct ixfr_store* ixfr_store, uint32_t ttl,
 
 /* store RR in data segment */
 static int ixfr_putrr(const struct dname* dname, uint16_t type, uint16_t klass,
-	uint32_t ttl, rdata_atom_type* rdatas, ssize_t rdata_num,
-	uint8_t** rrs, size_t* rrs_len, size_t* rrs_capacity)
+	uint32_t ttl, struct buffer *packet, struct stream *stream)
 {
-	size_t rdlen_uncompressed, sz;
-	uint8_t* sp;
-	int i;
-
 	/* find rdatalen */
-	rdlen_uncompressed = descriptr->uncompressed_rdlength(rr);
+	//rdlen_uncompressed = descriptr->uncompressed_rdlength(rr);
 	//for(i=0; i<rdata_num; i++) {
 	//	if(rdata_atom_is_domain(type, i)) {
 	//		rdlen_uncompressed += domain_dname(rdatas[i].domain)
@@ -1258,56 +1302,48 @@ static int ixfr_putrr(const struct dname* dname, uint16_t type, uint16_t klass,
 	//		rdlen_uncompressed += rdatas[i].data[0];
 	//	}
 	//}
-	sz = dname->name_size + 2 /*type*/ + 2 /*class*/ + 4 /*ttl*/ +
-		2 /*rdlen*/ + rdlen_uncompressed;
+//	sz = dname->name_size + 2 /*type*/ + 2 /*class*/ + 4 /*ttl*/ +
+//		2 /*rdlen*/ + rdlen_uncompressed;
 
 	/* store RR in IXFR data */
-	ixfr_rrs_make_space(rrs, rrs_len, rrs_capacity, sz);
-	if(!*rrs || *rrs_len + sz > *rrs_capacity) {
-		return 0;
-	}
+	//ixfr_rrs_make_space(rrs, rrs_len, rrs_capacity, sz);
+	//
+	// >> to make space
+	//
+	//if(!*rrs || *rrs_len + sz > *rrs_capacity) {
+	//	return 0;
+	//}
 	/* copy data into add */
-	sp = *rrs + *rrs_len;
-	*rrs_len += sz;
-	memmove(sp, dname_name(dname), dname->name_size);
-	sp += dname->name_size;
-	write_uint16(sp, type);
-	sp += 2;
-	write_uint16(sp, klass);
-	sp += 2;
-	write_uint32(sp, ttl);
-	sp += 4;
-	descriptor->copy_rdata(packet, NULL, );
+	//sp = *rrs + *rrs_len;
+	//*rrs_len += sz;
+
+	if (stream_write_name(stream, dname) < 0 ||
+	    stream_write_u16(stream, type) < 0 ||
+	    stream_write_u16(stream, klass) < 0 ||
+	    stream_write_u32(stream, ttl) < 0 ||
+	    descriptor->replicate_rdata(packet, stream) < 0)
+		return 0;
+//	memmove(sp, dname_name(dname), dname->name_size);
+//	sp += dname->name_size;
+//	write_uint16(sp, type);
+//	sp += 2;
+//	write_uint16(sp, klass);
+//	sp += 2;
+//	write_uint32(sp, ttl);
+//	sp += 4;
+	//
+	// create stream implementation so we can replicate the actual data
+	//
+//	descriptor->replicate_rdata(packet, stream);
 //	write_uint16(sp, rdlen_uncompressed);
-	sp += 2;
-	// implement a function for finding the length of the rr!
-//	for(i=0; i<rdata_num; i++) {
-//		if(rdata_atom_is_domain(type, i)) {
-//			memmove(sp, dname_name(domain_dname(rdatas[i].domain)),
-//				domain_dname(rdatas[i].domain)->name_size);
-//			sp += domain_dname(rdatas[i].domain)->name_size;
-//		} else {
-//			memmove(sp, &rdatas[i].data[1], rdatas[i].data[0]);
-//			sp += rdatas[i].data[0];
-//		}
-//	}
+//	sp += 2;
 	return 1;
 }
 
-//
-// we just want to copy
-//
-
 void ixfr_store_putrr(struct ixfr_store* ixfr_store, const struct dname* dname,
 	uint16_t type, uint16_t klass, uint32_t ttl, struct buffer* packet,
-	uint16_t rrlen,     /*struct region* temp_region*//*, uint8_t** rrs,
-	size_t* rrs_len, size_t* rrs_capacity*/)
+	uint16_t rrlen, struct stream)
 {
-//	domain_table_type *temptable;
-//	rdata_atom_type *rdatas;
-//	ssize_t rdata_num;
-	size_t oldpos;
-
 	if(ixfr_store->cancelled)
 		return;
 
@@ -1324,20 +1360,15 @@ void ixfr_store_putrr(struct ixfr_store* ixfr_store, const struct dname* dname,
 		return;
 
 	/* parse rdata */
-	oldpos = buffer_position(packet);
-//	temptable = domain_table_create(temp_region);
-//	rdata_num = rdata_wireformat_to_rdata_atoms(temp_region, temptable,
-//		type, rrlen, packet, &rdatas);
-//	buffer_set_position(packet, oldpos);
-//	if(rdata_num == -1) {
-//		log_msg(LOG_ERR, "ixfr_store addrr: cannot parse packet");
-//		ixfr_store_cancel(ixfr_store);
-//		return;
-//	}
+	size_t mark = buffer_position(packet);
+	ssize_t code = ixfr_putrr(dname, type, klass, ttl, packet, stream);
+	buffer_set_position(packet, mark);
 
-	if(!ixfr_putrr(dname, type, klass, ttl, packet,
-		rrs, rrs_len, rrs_capacity)) {
-		log_msg(LOG_ERR, "ixfr_store addrr: cannot allocate space");
+	if (code < 0) {
+		if (code == MALFORMED)
+			log_msg(LOG_ERR, "ixfr_store addrr: cannot parse packet");
+		else
+			log_msg(LOG_ERR, "ixfr_store addrr: cannot allocate space");
 		ixfr_store_cancel(ixfr_store);
 		return;
 	}
@@ -1345,20 +1376,18 @@ void ixfr_store_putrr(struct ixfr_store* ixfr_store, const struct dname* dname,
 
 void ixfr_store_delrr(struct ixfr_store* ixfr_store, const struct dname* dname,
 	uint16_t type, uint16_t klass, uint32_t ttl, struct buffer* packet,
-	uint16_t rrlen, struct region* temp_region)
+	uint16_t rrlen)
 {
 	ixfr_store_putrr(ixfr_store, dname, type, klass, ttl, packet, rrlen,
-		temp_region, &ixfr_store->data->del,
-		&ixfr_store->data->del_len, &ixfr_store->del_capacity);
+		&ixfr_store->data->del);
 }
 
 void ixfr_store_addrr(struct ixfr_store* ixfr_store, const struct dname* dname,
 	uint16_t type, uint16_t klass, uint32_t ttl, struct buffer* packet,
-	uint16_t rrlen, struct region* temp_region)
+	uint16_t rrlen)
 {
 	ixfr_store_putrr(ixfr_store, dname, type, klass, ttl, packet, rrlen,
-		temp_region, &ixfr_store->data->add,
-		&ixfr_store->data->add_len, &ixfr_store->add_capacity);
+		&ixfr_store->data->add);
 }
 
 int ixfr_store_addrr_rdatas(struct ixfr_store* ixfr_store,
@@ -2446,9 +2475,12 @@ static int ixfr_data_readoldsoa(struct ixfr_data* data, struct zone* zone,
 
 /* read ixfr data del section */
 static int ixfr_data_readdel(struct ixfr_data* data, struct zone* zone,
-	struct rr *rr, zone_parser_t *parser, struct region* tempregion,
-	struct domain_table* temptable, struct zone* tempzone)
+	struct buffer *packet, zone_parser_t *parser,
+	/*struct region* tempregion, struct domain_table* temptable, struct zone* tempzone*/
+	)
 {
+
+	ixfr_putrr(packet, );
 	size_t capacity = 0;
 	if(!ixfr_putrr(domain_dname(rr->owner), rr->type, rr->klass, rr->ttl, rr->rdatas, rr->rdata_count, &data->del, &data->del_len, &capacity)) {
 		zone_error(parser, "zone %s ixdr data: cannot allocate space",
@@ -2508,38 +2540,14 @@ static int32_t ixfr_data_accept(
 	const uint8_t *rdata,
 	void *user_data)
 {
-	struct rr *rr;
-	const struct dname *dname;
-	struct domain *domain;
+	struct dname_buffer dname;
 	struct buffer buffer;
-	union rdata_atom *rdatas;
-	ssize_t rdata_count;
 	struct ixfr_data_state *state = (struct ixfr_data_state *)user_data;
 
 	assert(parser);
 
 	buffer_create_from(&buffer, rdata, rdlength);
-
-	dname = dname_make(state->tempregion, name->octets, 1);
-	assert(dname);
-	domain = domain_table_insert(state->temptable, dname);
-	assert(domain);
-
-	//
-	// wont be need this here...
-	// we'll have the descriptor and use the read_rdata callback instead
-	//
-	rdata_count = rdata_wireformat_to_rdata_atoms(
-		state->tempregion, state->temptable, type, rdlength, &buffer, &rdatas);
-	assert(rdata_count > 0);
-	rr = region_alloc(state->tempregion, sizeof(*rr));
-	assert(rr);
-	rr->owner = domain;
-	rr->rdatas = rdatas;
-	rr->ttl = ttl;
-	rr->type = type;
-	rr->klass = class;
-	rr->rdata_count = rdata_count;
+	dname_make_from_packet_static(&dname, &buffer, 1, 1);
 
 	if (state->rr_count == 0) {
 		if (!ixfr_data_readnewsoa(state->data, state->zone, rr, parser,
@@ -2552,7 +2560,9 @@ static int32_t ixfr_data_accept(
 		                         state->tempzone, state->dest_serial))
 			return ZONE_SEMANTIC_ERROR;
 	} else if (state->soa_rr_count == 0) {
-		switch (ixfr_data_readdel(state->data, state->zone, rr, parser,
+		switch (ixfr_data_readdel(
+			state->data, state->zone, &buffr
+			state->data, state->zone, rr, parser,
 		                          state->tempregion, state->temptable,
 		                          state->tempzone))
 		{

@@ -284,19 +284,20 @@ typedef int32_t(*read_rdata_function)(
 typedef void(*nsd_write_rdata_t)(
 	const struct rr *, struct query *, struct buffer *);
 
-struct rrtype_descriptor {
+typedef void(*nsd_copy_rdata_t)(
+	struct buffer *, struct stream *);
+
+typedef struct nsd_type_descriptor nsd_type_descriptor_t;
+struct nsd_type_descriptor {
 	uint16_t type; /* RR type */
 	const char *name; /* Textual name. */
 	/** Read resource record from wire format. */
-	read_rdata_function read_rdata;
+	nsd_read_rdata_t read_rdata;
 	/** Write resource record to query. */
-	write_rdata_function write_rdata;
-	uint32_t minimum; /* Minimum number of RDATAs. */
-	uint32_t maximum; /* Maximum number of RDATAs. */
-	uint8_t wireformat[MAXRDATALEN]; /* rdata_wireformat_type */
-	uint8_t zoneformat[MAXRDATALEN]; /* rdata_zoneformat_type */
+	nsd_write_rdata_t write_rdata;
+	//
+	nsd_copy_rdata_t copy_rdata;
 };
-typedef struct rrtype_descriptor rrtype_descriptor_type;
 
 /*
  * Indexed by type.  The special type "0" can be used to get a

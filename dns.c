@@ -402,7 +402,7 @@ static const struct type_descriptor type_descriptors[] = {
 	UNKNOWN_TYPE(0),
 
 	TYPE("A", TYPE_A,
-		read_a_rdata, write_generic_rdata, a_rdata_fields),
+		read_a_rdata, write_generic_rdata, copy_a_rdata),
 	TYPE("NS", TYPE_NS,
 		read_ns_rdata, write_ns_rdata, ns_rdata_fields),
 	TYPE("MD", TYPE_MD,
