@@ -926,208 +926,12 @@ rdata_atom_to_string(buffer_type *output, rdata_zoneformat_type type,
 	return rdata_to_string_table[type](output, rdata, record);
 }
 
-ssize_t
-rdata_wireformat_to_rdata_atoms(region_type *region,
-				domain_table_type *owners,
-				uint16_t rrtype,
-				uint16_t data_size,
-				buffer_type *packet,
-				rdata_atom_type **rdatas)
+int print_unknown_rdata(
+	buffer_type *output, rrtype_descriptor_type *descriptor, rr_type *rr)
 {
-	size_t end = buffer_position(packet) + data_size;
+	// get descriptor, make sure domains are printed correctly!
 	size_t i;
-	rdata_atom_type temp_rdatas[MAXRDATALEN];
-	rrtype_descriptor_type *descriptor = rrtype_descriptor_by_type(rrtype);
-	region_type *temp_region;
-
-	assert(descriptor->maximum <= MAXRDATALEN);
-
-	if (!buffer_available(packet, data_size)) {
-		return -1;
-	}
-
-	temp_region = region_create(xalloc, free);
-
-	for (i = 0; i < descriptor->maximum; ++i) {
-		int is_domain = 0;
-		int is_normalized = 0;
-		int is_wirestore = 0;
-		size_t length = 0;
-		int required = i < descriptor->minimum;
-
-		switch (rdata_atom_wireformat_type(rrtype, i)) {
-		case RDATA_WF_COMPRESSED_DNAME:
-		case RDATA_WF_UNCOMPRESSED_DNAME:
-			is_domain = 1;
-			is_normalized = 1;
-			break;
-		case RDATA_WF_LITERAL_DNAME:
-			is_domain = 1;
-			is_wirestore = 1;
-			break;
-		case RDATA_WF_BYTE:
-			length = sizeof(uint8_t);
-			break;
-		case RDATA_WF_SHORT:
-			length = sizeof(uint16_t);
-			break;
-		case RDATA_WF_LONG:
-			length = sizeof(uint32_t);
-			break;
-		case RDATA_WF_TEXTS:
-		case RDATA_WF_LONG_TEXT:
-			length = end - buffer_position(packet);
-			break;
-		case RDATA_WF_TEXT:
-		case RDATA_WF_BINARYWITHLENGTH:
-			/* Length is stored in the first byte.  */
-			length = 1;
-			if (buffer_position(packet) + length <= end) {
-				length += buffer_current(packet)[length - 1];
-			}
-			break;
-		case RDATA_WF_A:
-			length = sizeof(in_addr_t);
-			break;
-		case RDATA_WF_AAAA:
-			length = IP6ADDRLEN;
-			break;
-		case RDATA_WF_ILNP64:
-			length = IP6ADDRLEN/2;
-			break;
-		case RDATA_WF_EUI48:
-			length = EUI48ADDRLEN;
-			break;
-		case RDATA_WF_EUI64:
-			length = EUI64ADDRLEN;
-			break;
-		case RDATA_WF_BINARY:
-			/* Remaining RDATA is binary.  */
-			length = end - buffer_position(packet);
-			break;
-		case RDATA_WF_APL:
-			length = (sizeof(uint16_t)    /* address family */
-				  + sizeof(uint8_t)   /* prefix */
-				  + sizeof(uint8_t)); /* length */
-			if (buffer_position(packet) + length <= end) {
-				/* Mask out negation bit.  */
-				length += (buffer_current(packet)[length - 1]
-					   & APL_LENGTH_MASK);
-			}
-			break;
-		case RDATA_WF_IPSECGATEWAY:
-			assert(i>1); /* we are past the gateway type */
-			switch(rdata_atom_data(temp_rdatas[1])[0]) /* gateway type */ {
-			default:
-			case IPSECKEY_NOGATEWAY:
-				length = 0;
-				break;
-			case IPSECKEY_IP4:
-				length = IP4ADDRLEN;
-				break;
-			case IPSECKEY_IP6:
-				length = IP6ADDRLEN;
-				break;
-			case IPSECKEY_DNAME:
-				is_domain = 1;
-				is_normalized = 1;
-				is_wirestore = 1;
-				break;
-			}
-			break;
-		case RDATA_WF_SVCPARAM:
-			length = 4;
-			if (buffer_position(packet) + 4 <= end) {
-				length +=
-				    read_uint16(buffer_current(packet) + 2);
-			}
-			break;
-		}
-
-		if (is_domain) {
-			const dname_type *dname;
-
-			if (!required && buffer_position(packet) == end) {
-				break;
-			}
-
-			dname = dname_make_from_packet(
-				temp_region, packet, 1, is_normalized);
-			if (!dname || buffer_position(packet) > end) {
-				/* Error in domain name.  */
-				region_destroy(temp_region);
-				return -1;
-			}
-			if(is_wirestore) {
-				temp_rdatas[i].data = (uint16_t *) region_alloc(
-                                	region, sizeof(uint16_t) + ((size_t)dname->name_size));
-				temp_rdatas[i].data[0] = dname->name_size;
-				memcpy(temp_rdatas[i].data+1, dname_name(dname),
-					dname->name_size);
-			} else {
-				temp_rdatas[i].domain
-					= domain_table_insert(owners, dname);
-				temp_rdatas[i].domain->usage ++;
-			}
-		} else {
-			if (buffer_position(packet) + length > end) {
-				if (required) {
-					/* Truncated RDATA.  */
-					region_destroy(temp_region);
-					return -1;
-				} else {
-					break;
-				}
-			}
-			if (!required && buffer_position(packet) == end) {
-				break;
-			}
-
-			temp_rdatas[i].data = (uint16_t *) region_alloc(
-				region, sizeof(uint16_t) + length);
-			temp_rdatas[i].data[0] = length;
-			buffer_read(packet, temp_rdatas[i].data + 1, length);
-		}
-	}
-
-	if (buffer_position(packet) < end) {
-		/* Trailing garbage.  */
-		region_destroy(temp_region);
-		return -1;
-	}
-
-	*rdatas = (rdata_atom_type *) region_alloc_array_init(
-		region, temp_rdatas, i, sizeof(rdata_atom_type));
-	region_destroy(temp_region);
-	return (ssize_t)i;
-}
-
-size_t
-rdata_maximum_wireformat_size(rrtype_descriptor_type *descriptor,
-			      size_t rdata_count,
-			      rdata_atom_type *rdatas)
-{
-	size_t result = 0;
-	size_t i;
-	for (i = 0; i < rdata_count; ++i) {
-		if (rdata_atom_is_domain(descriptor->type, i)) {
-			result += domain_dname(rdata_atom_domain(rdatas[i]))->name_size;
-		} else {
-			result += rdata_atom_size(rdatas[i]);
-		}
-	}
-	return result;
-}
-
-int
-rdata_atoms_to_unknown_string(buffer_type *output,
-			      rrtype_descriptor_type *descriptor,
-			      size_t rdata_count,
-			      rdata_atom_type *rdatas)
-{
-	size_t i;
-	size_t size =
-		rdata_maximum_wireformat_size(descriptor, rdata_count, rdatas);
+	size_t size = rr_marshal_rdata_length(rr);
 	buffer_printf(output, " \\# %lu ", (unsigned long) size);
 	for (i = 0; i < rdata_count; ++i) {
 		if (rdata_atom_is_domain(descriptor->type, i)) {
@@ -1144,8 +948,8 @@ rdata_atoms_to_unknown_string(buffer_type *output,
 }
 
 int
-print_rdata(buffer_type *output, rrtype_descriptor_type *descriptor,
-	    rr_type *record)
+print_rdata(
+	buffer_type *output, rrtype_descriptor_type *descriptor, rr_type *record)
 {
 	size_t i;
 	size_t saved_position = buffer_position(output);
@@ -1158,14 +962,14 @@ print_rdata(buffer_type *output, rrtype_descriptor_type *descriptor,
 		} else {
 			buffer_printf(output, " ");
 		}
-		if (!rdata_atom_to_string(
-			    output,
-			    (rdata_zoneformat_type) descriptor->zoneformat[i],
-			    record->rdatas[i], record))
-		{
-			buffer_set_position(output, saved_position);
-			return 0;
-		}
+//		if (!rdata_atom_to_string(
+//			    output,
+//			    (rdata_zoneformat_type) descriptor->zoneformat[i],
+//			    record->rdatas[i], record))
+//		{
+//			buffer_set_position(output, saved_position);
+//			return 0;
+//		}
 	}
 	if (descriptor->type == TYPE_SOA) {
 		buffer_printf(output, " )");
