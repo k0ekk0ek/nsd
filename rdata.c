@@ -1706,7 +1706,7 @@ int32_t read_ipseckey_rdata(
 
 	buffer_skip(packet, 3);
 
-	switch (buffer_read_u8_at(mark + 2)) {
+	switch (buffer_read_u8_at(mark + 2)) { /// FIXME: I think this is the wrong index?!?!
 		case 0:
 			break;
 		case 1: // ipv4
@@ -2333,3 +2333,44 @@ int32_t print_dlv_rdata(struct buffer *output, const struct rr *rr);
 	assert(rr->rdlength == length);
 	return 1;
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
